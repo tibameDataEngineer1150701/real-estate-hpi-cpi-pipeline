@@ -2,9 +2,11 @@ from pathlib import Path
 import pandas as pd
 
 
-EXTRACTED_DIR = Path("C:/Users/user/PycharmProjects/PythonProject")
+EXTRACTED_DIR = Path("data/extracted")
+
 # b CSV 異常資料列僅 1 列，因最後多一個 trailing comma，Header：31 fields，資料列：32 fields，Pandas：Expected 31 fields in line 883, saw 32
 b_csv = EXTRACTED_DIR / "115S1" / "a_lvr_land_b.csv"
+
 # 確認 41 個 b CSV 是否只有這一種異常、確認"最後多一個逗號"能否做為 _Real_Estate_Analysis.py 通用清理規則
 EXPECTED_FIELDS = 31
 

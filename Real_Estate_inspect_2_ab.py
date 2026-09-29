@@ -2,7 +2,7 @@
 # a: 44 csv + b: 41 csv (所有 85 個 CSV) data quality check 資料品質檢查 -> 再決定 ETL 規則
 from pathlib import Path
 
-EXTRACTED_DIR = Path("C:/Users/user/PycharmProjects/PythonProject")
+EXTRACTED_DIR = Path("data/extracted")
 
 a_csv_files = list(EXTRACTED_DIR.rglob("*_lvr_land_a.csv"))
 b_csv_files = list(EXTRACTED_DIR.rglob("*_lvr_land_b.csv"))
