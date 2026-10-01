@@ -9,25 +9,16 @@
 
 # 觀察下載每季資料的網址邏輯:https://plvr.land.moi.gov.tw//DownloadSeason?season=114S1&type=zip&fileName=lvr_landcsv.zip
 
-# Path: 處理檔案與目錄路徑的 Python 內建模組
-from pathlib import Path
-import requests
-import zipfile
-import io
-import time
-
 # 下載每季資料的網址主要架構
 BASE_URL = "https://plvr.land.moi.gov.tw/DownloadSeason"
 
 
 # ============================================================
-# Real Estate Web Crawler
-# Taiwan Real Estate Transaction Data Engineering & Analytics Pipeline
-#
 # Built a Python-based ETL pipeline to ingest quarterly Taiwan real-estate transaction data, with automated ZIP validation,
 # selective extraction, data-quality checks, and downstream analytical storage.
 # ============================================================
 
+# Path: 處理檔案與目錄路徑的 Python 內建模組
 from pathlib import Path
 from datetime import datetime
 import requests
@@ -149,7 +140,7 @@ def extract_season(zip_path, extract_dir=EXTRACTED_DIR):
 
     print(f"\n開始解壓縮：{season}")
 
-    # 若該季度已有必要資料，跳過(檢查必要檔案，schema is not a must)
+    # 檢查該季度是否已完成解壓縮: 若該季度已有必要資料，跳過(檢查必要檔案，schema is not a must)
     files = identify_files(extract_dir)
 
     if files["manifest"] and files["land_a"] and files["land_b"]:
@@ -289,14 +280,30 @@ def validate_files(files, season):
     return True
 
 
-# 5. Current roc year / quarter
+# 5. Current quarter
 
-def current_roc_year():
-    return datetime.now().year - 1911
+def current_complete_quarter():
+    """
+    回傳目前已完成的最後一個季度，例如：
+    2026-10-01 → 2026Q3
+    2026-08-01 → 2026Q2
+    2026-04-01 → 2026Q1
+    """
+    today = datetime.now()
+    quarter = (today.month - 1) // 3 + 1
 
-def current_quarter():
-    month = datetime.now().month
-    return (month - 1) // 3 + 1
+    if quarter == 1:
+        year = today.year - 1
+        quarter = 4
+    else:
+        year = today.year
+        quarter -= 1
+
+    return year - 1911, quarter
+
+# def current_quarter():
+#     month = datetime.now().month
+#     return (month - 1) // 3 + 1
 
 
 # 6. Run Real Estate ETL pipeline: Download → Extract → Identify → Validate
@@ -308,10 +315,12 @@ def run_pipeline(
     可重複執行：
     已下載且有效的 ZIP → Skip
     已解壓縮資料 → Skip
+
+    Pipeline 只處理「已完成」的季度，
+    不會嘗試下載目前尚未完成的季度。
     """
 
-    end_year = current_roc_year()
-    end_quarter = current_quarter()
+    end_year, end_quarter = current_complete_quarter()
 
     print("\n")
     print("=" * 70)
@@ -330,7 +339,7 @@ def run_pipeline(
         end_year + 1):
 
         for quarter in range(1, 5):
-            # 不下載未來季度
+            # 不下載未完成/未來季度
             if year == end_year and quarter > end_quarter:
                 break
 
@@ -348,7 +357,7 @@ def run_pipeline(
                 quarter)
 
             if zip_path is None:
-                print(f"❌ {season} Download failed")
+                print(f"X {season} Download failed")
                 continue
 
             # Step 2: Extract
@@ -356,7 +365,7 @@ def run_pipeline(
             extract_path = extract_season(zip_path)
 
             if extract_path is None:
-                print(f"❌ {season} Extract failed")
+                print(f"X {season} Extract failed")
                 continue
 
             # Step 3: Identify
@@ -368,10 +377,11 @@ def run_pipeline(
             is_valid = validate_files(files, season)
 
             if not is_valid:
-                print(f"❌ {season} validation failed")
+                print(f"X {season} validation failed")
                 continue
 
-            print(f"✅ {season} pipeline completed")
+            print(f"V {season} pipeline completed")
+
             # Avoid hitting server too quickly
             time.sleep(sleep_seconds)
 
@@ -393,4 +403,4 @@ def roc_quarter_to_period(year, quarter):
 # ============================================================
 
 if __name__ == "__main__":
-    run_pipeline(start_year=115)
+    run_pipeline(start_year=105)
