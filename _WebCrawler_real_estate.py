@@ -33,8 +33,8 @@ BASE_URL = "https://plvr.land.moi.gov.tw/DownloadSeason"
 # RAW_DIR = Path("data/raw")
 # EXTRACTED_DIR = Path("data/extracted")
 
-RAW_DIR = Path("C:/Users/user/PycharmProjects/PythonProject")
-EXTRACTED_DIR = Path("C:/Users/user/PycharmProjects/PythonProject")
+RAW_DIR = Path("C:/Users/user/real-estate-hpi-cpi-pipeline/raw")
+EXTRACTED_DIR = Path("C:/Users/user/real-estate-hpi-cpi-pipeline/extracted")
 
 # A = 不動產買賣
 # B = 預售屋買賣
