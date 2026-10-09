@@ -126,7 +126,7 @@ The CPI data is used to adjust the Housing Price Index for general inflation.
                                               │
                                               ▼
                                       real_hpi.parquet
-
+```
 
 ---
 
@@ -161,7 +161,7 @@ RealEstate_ETF_Project/
 │       └── real_hpi.parquet
 │
 └── .gitignore
-
+```
 > Raw and extracted government datasets should generally not be committed to GitHub. The .gitignore file should exclude large raw data files and generated datasets where appropriate.
 
 ---
@@ -184,7 +184,7 @@ Responsible for the ingestion layer of the real-estate pipeline.
 
 ### Workflow
 
-text
+```text
 Download
    ↓
 ZIP validation
@@ -194,7 +194,7 @@ Selective extraction
 File identification
    ↓
 File validation
-
+```
 ### ZIP validation
 
 Downloaded content is checked using:
@@ -223,7 +223,7 @@ Responsible for transaction-level data cleaning, transformation, and quarterly a
 
 ### Planned workflow
 
-text
+```text
 Raw A/B CSV
      ↓
 Schema inspection
@@ -243,18 +243,18 @@ Quarterly aggregation
 Price QoQ / YoY
      ↓
 Parquet output
-
+```
 ### Key analytical fields
 
 The processed dataset is designed to contain fields such as:
 
-text
+```text
 period
 avg_unit_price
 transaction_amt
 price_QoQ
 price_YoY
-
+```
 Additional fields may be added as the analysis requirements evolve.
 
 ### Handling government data quality issues
@@ -280,7 +280,7 @@ Responsible for retrieving and transforming the official Housing Price Index.
 
 ### Workflow
 
-text
+```text
 MOI HPI webpage
        ↓
 HTML table extraction
@@ -296,21 +296,21 @@ Numeric conversion
 Validation
        ↓
 housing_price_index.parquet
-
+```
 ### Output schema
 
-text
+```text
 period
 region
 housing_price_index
-
+```
 Example:
 
-text
+```text
 2026Q1 | 臺北市 | ...
 2026Q1 | 新北市 | ...
 2026Q1 | 桃園市 | ...
-
+```
 The HPI is retained as an official benchmark rather than being treated as an actual transaction price per ping.
 
 ---
@@ -321,7 +321,7 @@ Responsible for retrieving CPI data from the DGBAS API.
 
 ### Workflow
 
-text
+```text
 DGBAS API
     ↓
 JSON response
@@ -335,7 +335,7 @@ Quarterly aggregation
 Validation
     ↓
 cpi.parquet
-
+```
 The pipeline retrieves monthly CPI data and converts it to quarterly values.
 
 Quarterly CPI is calculated using the mean of the three monthly CPI observations in each complete quarter.
@@ -344,18 +344,18 @@ Incomplete quarters are excluded from quarterly analysis.
 
 ### Output schema
 
-text
+```text
 period
 cpi_index
-
+```
 Example:
 
-text
+```text
 2016Q1 | ...
 2016Q2 | ...
 ...
 2026Q2 | ...
-
+```
 ---
 
 ## 5.5 RealHPI.py
@@ -364,9 +364,9 @@ Combines HPI and CPI to calculate an inflation-adjusted Housing Price Index.
 
 Because the official HPI uses:
 
-text
+```text
 2016 annual average = 100
-
+```
 the CPI is normalized to the same base.
 
 ### Calculation
@@ -378,26 +378,26 @@ CPI_2016_base = mean(2016 quarterly CPI)
 
 Then:
 
-text
+```text
 CPI_2016_base100
     = CPI / CPI_2016_base × 100
-
+```
 Real HPI:
 
-text
+```text
 Real HPI
     = HPI / CPI_2016_base100 × 100
-
+```
 ### Output schema
 
-text
+```text
 period
 region
 housing_price_index
 cpi_index
 cpi_2016_base100
 real_hpi
-
+```
 ### Interpretation
 
 * **HPI** measures nominal housing-price movements relative to the HPI base period.
