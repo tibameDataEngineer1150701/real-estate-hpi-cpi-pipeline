@@ -58,6 +58,8 @@ import pandas as pd
 # ============================================================
 
 EXTRACTED_DIR = Path("C:/Users/user/real-estate-hpi-cpi-pipeline/extracted")
+PROCESSED_DIR = Path("C:/Users/user/real-estate-hpi-cpi-pipeline/data/processed")
+OUTPUT_PARQUET = (PROCESSED_DIR / "residential_transactions_quarterly.parquet")
 
 # Analysis data are restricted to transactions with transaction dates on or before the analysis cutoff date.
 # 明確定義資料截止日期，period: quarterly aggregation key
@@ -1005,7 +1007,100 @@ def filter_six_municipalities(df):
     six_city_df = df[df["municipality"].isin(SIX_MUNICIPALITIES)].copy()
 
     return six_city_df
-    
+
+
+# ============================================================
+# Quarterly Aggregation & Parquet Export
+# 六都住宅交易季度整合與 Parquet 輸出
+# ============================================================
+
+def aggregate_quarterly_transactions(df):
+    """
+    依季度與六都彙總住宅交易資料
+
+    Output columns:
+    - period
+    - municipality
+    - avg_unit_price
+    - median_unit_price
+    - transaction_count
+
+    單價單位：新臺幣元／平方公尺
+    """
+
+    required_columns = [
+        "period",
+        "municipality",
+        "單價元平方公尺"]
+
+    missing_columns = [
+        col for col in required_columns
+        if col not in df.columns]
+
+    if missing_columns:
+        raise ValueError(f"缺少必要欄位：{missing_columns}")
+
+    analysis_df = df.copy()
+
+    # 確保單價為數值
+    analysis_df["單價元平方公尺"] = pd.to_numeric(
+        analysis_df["單價元平方公尺"],errors="coerce")
+
+    # 排除無效資料
+    analysis_df = analysis_df[
+        analysis_df["period"].notna()
+        & analysis_df["municipality"].isin(SIX_MUNICIPALITIES)
+        & analysis_df["單價元平方公尺"].notna()
+        & (analysis_df["單價元平方公尺"] > 0)].copy()
+
+    # 依季度、縣市彙總平均單價、成交筆數
+    quarterly_df = (analysis_df
+        .groupby(
+            ["period", "municipality"],
+            as_index=False)
+        .agg(
+            avg_unit_price=(
+                "單價元平方公尺",
+                "mean"),
+            median_unit_price=(
+                "單價元平方公尺",
+                "median"),
+            transaction_count=(
+                "單價元平方公尺",
+                "size"))
+        .sort_values(["period", "municipality"]).reset_index(drop=True))
+
+    return quarterly_df
+
+
+def export_quarterly_parquet(df,output_path=OUTPUT_PARQUET):
+    """
+    將季度彙總結果輸出為 Parquet
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True)
+
+    df.to_parquet(
+        output_path,
+        index=False,
+        engine="pyarrow")
+
+    print("\n========== Parquet Export ==========")
+    print(f"輸出路徑：{output_path}")
+    print(f"資料筆數：{len(df):,}")
+    print(f"季度數量：{df['period'].nunique():,}")
+    print(f"縣市數量：{df['municipality'].nunique():,}")
+    print("\n資料預覽：")
+    print(df.head(10).to_string(index=False))
+
+    print("\n各縣市交易筆數：")
+    print(df.groupby("municipality")["transaction_count"]
+          .sum().sort_values(ascending=False))
+
+    return output_path
+
 # ============================================================
 # Main
 # ============================================================
@@ -1023,17 +1118,8 @@ if __name__ == "__main__":
     # 2. Validate schema
     # -----------------------------------------
 
-    validate_dataframe(
-        df_a,
-        "A",
-        expected_transaction_type="不動產買賣"
-    )
-
-    validate_dataframe(
-        df_b,
-        "B",
-        expected_transaction_type="預售屋買賣"
-    )
+    validate_dataframe(df_a,"A",expected_transaction_type="不動產買賣")
+    validate_dataframe(df_b,"B",expected_transaction_type="預售屋買賣")
 
     # -----------------------------------------
     # 3. Investigate duplicates
@@ -1236,6 +1322,31 @@ if __name__ == "__main__":
     print("=" * 70)
 
     print(quarterly_six_city.head(20).to_string(index=False))
+
+
+    # -----------------------------------------
+    # A + B → Quarterly Aggregation → Parquet
+    # -----------------------------------------
+
+    # 1. 合併不動產買賣 A 與預售屋買賣 B
+    six_city_analysis = pd.concat([six_city_a_analysis,
+                                   six_city_b_analysis],ignore_index=True)
+
+    print("\n========== Combine A/B ==========")
+    print(f"A 資料筆數：{len(six_city_a_analysis):,}")
+    print(f"B 資料筆數：{len(six_city_b_analysis):,}")
+    print(f"合併後筆數：{len(six_city_analysis):,}")
+
+
+    # 2. 依季度與六都整合
+    quarterly_six_city = aggregate_quarterly_transactions(six_city_analysis)
+
+    print("\n========== Quarterly Aggregation ==========")
+    print(quarterly_six_city.head(10).to_string(index=False))
+
+
+    # 3. Export Parquet
+    export_quarterly_parquet(quarterly_six_city)
 
     # --------------------------------------------------------
     # Preview
