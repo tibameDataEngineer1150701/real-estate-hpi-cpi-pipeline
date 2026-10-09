@@ -137,8 +137,7 @@ def read_b_csv(file_path):
     - Second row: English metadata
     - Transaction data starts from the third row
     - Expected schema is determined from the actual header
-    - Some historical files contain unquoted commas in the final
-      「棟及號」 field.
+    - Some historical files contain unquoted commas in the final「棟及號」 field.
     - Raw CSV files are never modified.
 
     Processing logic:
@@ -198,7 +197,6 @@ def read_b_csv(file_path):
             # ------------------------------------------------
 
             if actual_fields == expected_fields:
-
                 rows.append(row)
                 continue
 
@@ -207,7 +205,6 @@ def read_b_csv(file_path):
             # ------------------------------------------------
 
             if actual_fields > expected_fields:
-
                 extra_fields = actual_fields - expected_fields
 
                 print(
@@ -276,7 +273,7 @@ def clean_a_dataframe(df):
     # Keep only common analytical columns
     df = df[COMMON_COLUMNS].copy()
 
-    # Identify transaction type
+    # Identify transaction type: sale
     df["transaction_type"] = "不動產買賣"
 
     return df
