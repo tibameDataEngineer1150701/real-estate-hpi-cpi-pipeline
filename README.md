@@ -240,8 +240,6 @@ Transaction-level transformation
      ↓
 Quarterly aggregation
      ↓
-Price QoQ / YoY
-     ↓
 Parquet output
 ```
 ### Key analytical fields
@@ -252,8 +250,6 @@ The processed dataset is designed to contain fields such as:
 period
 avg_unit_price
 transaction_amt
-price_QoQ
-price_YoY
 ```
 Additional fields may be added as the analysis requirements evolve.
 
@@ -415,10 +411,11 @@ The project applies several data engineering practices.
 Each data source has a dedicated module:
 
 ```text
-Source / Responsibility
+.py                     Responsibility
 ──────────────────────────────────────
-RealEstateCrawler.py   → Ingestion
-RealEstateAnalysis.py
+RealEstateCrawler.py    Data acquisition and raw data ingestion
+RealEstateAnalysis.py   Data cleaning, validation, transformation,
+                        analytical filtering, and aggregation
 ```
 
 ---
