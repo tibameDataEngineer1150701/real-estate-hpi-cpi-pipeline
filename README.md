@@ -379,14 +379,12 @@ CPI_2016_base = mean(2016 quarterly CPI)
 Then:
 
 ```text
-CPI_2016_base100
-    = CPI / CPI_2016_base × 100
+CPI_2016_base100 = CPI / CPI_2016_base × 100
 ```
 Real HPI:
 
 ```text
-Real HPI
-    = HPI / CPI_2016_base100 × 100
+Real HPI = HPI / CPI_2016_base100 × 100
 ```
 ### Output schema
 
@@ -421,3 +419,41 @@ Source / Responsibility
 ──────────────────────────────────────
 RealEstateCrawler.py   → Ingestion
 RealEstateAnalysis.py
+```
+
+---
+
+## 7. Python Environment Setup
+
+### 7.1 Install uv
+```
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+### 7.2 Install Python 3.11
+```
+uv python install 3.11
+```
+
+### 7.3 Setup Python Virtual Environment
+```
+uv venv --python 3.11
+```
+
+### 7.4 Install repo
+```
+uv sync
+```
+
+### 7.5 Install Python Packages
+```
+uv add flask
+uv add flask==3.0.0
+```
+
+### 7.6 Setup Environment Variables
+```
+ENV=DEV python genenv.py
+ENV=DOCKER python genenv.py
+ENV=PRODUCTION python genenv.py
+```
