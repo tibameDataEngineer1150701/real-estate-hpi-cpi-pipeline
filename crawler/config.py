@@ -35,17 +35,25 @@ if APP_ENV not in ("DEV", "DOCKER", "PRODUCTION"):
 
 
 # RabbitMQ (訊息佇列) 登入帳密
-WORKER_ACCOUNT = os.environ.get("WORKER_ACCOUNT", "worker")
-WORKER_PASSWORD = os.environ.get("WORKER_PASSWORD", "worker")
+# WORKER_ACCOUNT = os.environ.get("WORKER_ACCOUNT", "worker")
+WORKER_ACCOUNT = get_config("WORKER_ACCOUNT", "worker", APP_ENV)
+# WORKER_PASSWORD = os.environ.get("WORKER_PASSWORD", "worker")
+WORKER_PASSWORD = get_config("WORKER_PASSWORD", "worker", APP_ENV)
 
 # RabbitMQ 主機位址與通訊埠
 # 127.0.0.1 代表本機, 若 RabbitMQ 跑在 docker 內, 要改成對應的 host
-RABBITMQ_HOST = os.environ.get("RABBITMQ_HOST", "127.0.0.1")
+# RABBITMQ_HOST = os.environ.get("RABBITMQ_HOST", "127.0.0.1")
+RABBITMQ_HOST = get_config("RABBITMQ_HOST", "127.0.0.1", APP_ENV)
 # int() 轉型是因為環境變數讀出來都是字串, 後續連線需要數字型別
-RABBITMQ_PORT = int(os.environ.get("RABBITMQ_PORT", 5672))
+# RABBITMQ_PORT = int(os.environ.get("RABBITMQ_PORT", 5672))
+RABBITMQ_PORT = int(get_config("RABBITMQ_PORT", "5672", APP_ENV))
 
 # MySQL 資料庫連線設定，將爬蟲結果寫進資料庫
-MYSQL_HOST = os.environ.get("MYSQL_HOST", "127.0.0.1")
-MYSQL_PORT = int(os.environ.get("MYSQL_PORT", 3307))
-MYSQL_ACCOUNT = os.environ.get("MYSQL_ACCOUNT", "root")
-MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "ppWgnb_mfGe2m_")
+# MYSQL_HOST = os.environ.get("MYSQL_HOST", "127.0.0.1")
+# MYSQL_PORT = int(os.environ.get("MYSQL_PORT", 3307))
+# MYSQL_ACCOUNT = os.environ.get("MYSQL_ACCOUNT", "root")
+# MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "ppWgnb_mfGe2m_")
+MYSQL_HOST = get_config("MYSQL_HOST", "127.0.0.1", APP_ENV)
+MYSQL_PORT = int(get_config("MYSQL_PORT", "3307", APP_ENV))
+MYSQL_ACCOUNT = get_config("MYSQL_ACCOUNT", "root", APP_ENV)
+MYSQL_PASSWORD = get_config("MYSQL_PASSWORD", "", APP_ENV)
