@@ -9,7 +9,7 @@ WebCrawler Pipeline:
 # 從 worker.py 匯入 Celery app 實例
 # 所有的 task 都要透過 app 來註冊, 才能被 Celery worker 識別
 from asyncio.log import logger
-
+from datetime import datetime, timezone
 from crawler.worker import app
 
 
