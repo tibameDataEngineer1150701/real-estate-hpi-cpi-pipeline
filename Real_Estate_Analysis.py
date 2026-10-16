@@ -57,8 +57,9 @@ import pandas as pd
 # Configuration
 # ============================================================
 
-EXTRACTED_DIR = Path("C:/Users/user/real-estate-hpi-cpi-pipeline/extracted")
-PROCESSED_DIR = Path("C:/Users/user/real-estate-hpi-cpi-pipeline/data/processed")
+PROJECT_DIR = Path(__file__).resolve().parent
+EXTRACTED_DIR = PROJECT_DIR / "extracted"
+PROCESSED_DIR = PROJECT_DIR / "processed"
 OUTPUT_PARQUET = (PROCESSED_DIR / "residential_transactions_quarterly.parquet")
 OUTPUT_CSV = (PROCESSED_DIR / "residential_transactions_quarterly.csv")
 
