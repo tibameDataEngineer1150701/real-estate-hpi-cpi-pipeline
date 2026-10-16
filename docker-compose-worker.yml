@@ -2,17 +2,35 @@ version: '3.0'  # 使用 Docker Compose 的版本 3.0，適合大部分部署場
 
 services:
   crawler_real-estate:  # 定義一個服務，名稱為 crawler_real-estate
-    image: chingyun09/real-estate_crawler:0.0.1  # 使用的映像檔名稱與標籤（版本）
+    image: chingyun09/real-estate_crawler:0.0.3  # 使用的映像檔名稱與標籤（版本）
     hostname: "real-estate"  # 設定 hostname = real-estate
     command: uv run celery -A crawler.worker worker --loglevel=info --hostname=%h -Q real-estate
     # 啟動容器後執行的命令，這裡是啟動 Celery worker，指定 app 為 crawler.worker，設定日誌等級為 info，
     # 使用主機名稱當作 worker 名稱（%h），並將此 worker 加入名為 "real-estate" 的任務佇列 (queue)
 
     restart: always  # 若容器停止或崩潰，自動重新啟動
+    env_file:
+      - .env
     environment:
       - TZ=Asia/Taipei  # 設定時區為台北（UTC+8）
+      - APP_ENV=DOCKER
+      - WORKER_ACCOUNT=worker
+      - WORKER_PASSWORD=worker
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_ACCOUNT=user
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:?請在.env設定MYSQL_PASSWORD}
     networks:
       - dev  # 將此服務連接到 dev 網路
+      - mysql_network  # 設定讓 Worker 同時加入 RabbitMQ 與 MySQL 所在 network
 
 networks:
   dev:  # 定義一個名為 dev 的自訂網路，其他服務也可加入此網路
+  external: true
+    name: real-estate-hpi-cpi-pipeline_dev
+
+  mysql_network:
+    external: true
+    name: my_network
