@@ -1,0 +1,26 @@
+# Local configuration and secrets
+local.ini
+.env
+.env.*
+!.env.example
+
+# Python virtual environments and cache
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Local development files
+.vscode/
+.idea/
+*.log
+.pytest_cache/
+
+# Generated data
+/raw/
+/processed/
+/extracted/
+/crawler/raw/
+/crawler/processed/
+/crawler/extracted/

@@ -29,8 +29,6 @@ app = Celery(
     # 只有列在這裡的模組, 裡面用 @app.task 裝飾的函式才會被註冊為可執行任務
     include=[
         "crawler.tasks",  # 一般任務
-        "crawler.tasks_crawler_finmind",  # FinMind 爬蟲任務
-        "crawler.tasks_crawler_finmind_duplicate",  # FinMind 重複資料檢查任務
         "crawler.tasks_WebCrawler_real_estate",  # 實價登錄爬蟲任務
         "crawler.tasks_WebCrawler_hpi",  # HPI 爬蟲任務
         "crawler.tasks_WebCrawler_cpi",  # CPI 爬蟲任務
