@@ -23,7 +23,7 @@ from datetime import datetime
 # 0. Configuration
 # ============================================================
 
-PROJECT_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = Path(__file__).resolve().parent.parent
 
 PROCESSED_DIR = PROJECT_DIR / "processed"
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
