@@ -7,7 +7,7 @@ from loguru import logger  # 日誌工具，用來輸出 log 訊息
 from sqlalchemy import URL, create_engine, text  # 建立資料庫連線的工具（SQLAlchemy）
 
 # 專案根目錄
-PROJECT_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = Path(__file__).resolve().parent.parent
 
 # 目前 HPI、CPI 預期輸出位置
 PROCESSED_DIR = PROJECT_DIR / "processed"
