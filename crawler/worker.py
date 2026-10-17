@@ -31,6 +31,9 @@ app = Celery(
         "crawler.tasks",  # 一般任務
         "crawler.tasks_crawler_finmind",  # FinMind 爬蟲任務
         "crawler.tasks_crawler_finmind_duplicate",  # FinMind 重複資料檢查任務
+        "crawler.tasks_WebCrawler_real_estate",  # 實價登錄爬蟲任務
+        "crawler.tasks_WebCrawler_hpi",  # HPI 爬蟲任務
+        "crawler.tasks_WebCrawler_cpi",  # CPI 爬蟲任務
     ],
     # broker: 指定訊息中介的連線網址, Celery 會把任務送到這裡排隊
     # 格式: pyamqp://帳號:密碼@主機:埠號/
