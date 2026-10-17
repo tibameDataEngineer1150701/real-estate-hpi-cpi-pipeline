@@ -14,6 +14,7 @@ PROCESSED_DIR = PROJECT_DIR / "processed"
 
 # 只列出已確認的資料檔案
 DATASETS = {
+    "housing_txn_qtr": PROCESSED_DIR / "residential_transactions_quarterly.csv",
     "housing_price_index": PROCESSED_DIR / "housing_price_index.csv",
     "cpi": PROCESSED_DIR / "cpi.csv",
     "hpi": PROCESSED_DIR / "real_hpi.csv"
