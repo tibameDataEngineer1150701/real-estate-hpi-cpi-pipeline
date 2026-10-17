@@ -9,7 +9,7 @@ from sqlalchemy import URL, create_engine, text  # 建立資料庫連線的工�
 # 專案根目錄
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 
-# 目前 HPI、CPI 預期輸出位置
+# 資料輸出位置一致
 PROCESSED_DIR = PROJECT_DIR / "processed"
 
 # 只列出已確認的資料檔案
