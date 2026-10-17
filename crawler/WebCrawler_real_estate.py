@@ -38,7 +38,7 @@ TARGET_TYPES = {
     "a": "不動產買賣",
     "b": "預售屋買賣",}
 
-# 1. Download
+# 1. Download (下載檔案預設存到 RAW_DIR)
 def download_season(
     year,
     quarter,
@@ -108,7 +108,7 @@ def download_season(
         return None
 
 
-# 2. Extract
+# 2. Extract (解壓縮預設使用 EXTRACTED_DIR 中的.zip檔案)
 def extract_season(zip_path, extract_dir=EXTRACTED_DIR):
     """
     解壓縮指定季度 ZIP
@@ -121,7 +121,7 @@ def extract_season(zip_path, extract_dir=EXTRACTED_DIR):
     不處理：
     - *_lvr_land_c.csv
     """
-
+    # 依季度建立解壓縮資料夾
     zip_path = Path(zip_path)
     season = zip_path.name.split("_")[0]
     extract_dir = Path(extract_dir) / season
@@ -341,7 +341,7 @@ def run_pipeline(
 
                 if zip_path is None:
                     raise RuntimeError("ZIP 下載失敗或不是有效 ZIP")
-
+                # 呼叫解壓縮函式時使用 zip_path
                 extract_path = extract_season(zip_path)
                 files = identify_files(extract_path)
 
