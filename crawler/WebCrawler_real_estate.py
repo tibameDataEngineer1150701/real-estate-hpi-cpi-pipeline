@@ -111,14 +111,15 @@ def download_season(
 # 2. Extract (解壓縮預設使用 EXTRACTED_DIR 中的.zip檔案)
 def extract_season(zip_path, extract_dir=EXTRACTED_DIR):
     """
-    解壓縮指定季度 ZIP
-    只 Extract：
-    - manifest.csv
-    - schema
-    - *_lvr_land_a.csv
-    - *_lvr_land_b.csv
+    解壓縮指定季度交易資料 ZIP
+    Only extract:
+    - manifest.csv: 資料清單
+    - schema: 欄位定義
+    - *_lvr_land_a.csv: 不動產買賣主檔及相關資料
+    - *_lvr_land_b.csv: 預售屋買賣主檔及相關資料
+    保留主檔，使用字串包含判斷，因此包含相關建物、土地、車位等資料
 
-    不處理：
+    Avoid to extract:
     - *_lvr_land_c.csv
     """
     # 依季度建立解壓縮資料夾
@@ -131,7 +132,7 @@ def extract_season(zip_path, extract_dir=EXTRACTED_DIR):
 
     print(f"\n開始解壓縮：{season}")
 
-    # 檢查該季度是否已完成解壓縮: 若該季度已有必要資料，跳過(檢查必要檔案，schema is not a must)
+    # 檢查必要檔案是否存在(schema is not a must)，避免重複解壓縮
     files = identify_files(extract_dir)
 
     if files["manifest"] and files["land_a"] and files["land_b"]:
@@ -142,7 +143,7 @@ def extract_season(zip_path, extract_dir=EXTRACTED_DIR):
     #     print(f"! 已存在解壓縮資料，跳過：{extract_dir}")
     #     return extract_dir
 
-    # Selective extraction
+    # Selective extraction 選擇性解壓縮
 
     with zipfile.ZipFile(zip_path,"r") as zip_ref:
         extracted_count = 0
