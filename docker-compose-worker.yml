@@ -16,21 +16,16 @@ services:
       - APP_ENV=DOCKER
       - WORKER_ACCOUNT=worker
       - WORKER_PASSWORD=worker
-      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_HOST=rabbitmq  # rabbitMQ 接收 Celery 任務
       - RABBITMQ_PORT=5672
-      - MYSQL_HOST=mysql
+      - MYSQL_HOST=mysql  # 透過 MYSQL_HOST=mysql 連線 Worker
       - MYSQL_PORT=3306
       - MYSQL_ACCOUNT=user
       - MYSQL_PASSWORD=${MYSQL_PASSWORD:?請在.env設定MYSQL_PASSWORD}
     networks:
-      - dev  # 將此服務連接到 dev 網路
-      - mysql_network  # 設定讓 Worker 同時加入 RabbitMQ 與 MySQL 所在 network
+      - dev  # 將此服務連接到 dev 網路，設定讓 Worker 同時加入 RabbitMQ 與 MySQL 所在 network
 
-networks:
+networks:  # my_network 是本機 bridge 網路、實際存在 Docker Engine 的 network 名稱
   dev:  # 定義一個名為 dev 的自訂網路，其他服務也可加入此網路
-  external: true
-    name: real-estate-hpi-cpi-pipeline_dev
-
-  mysql_network:
-    external: true
-    name: my_network
+    external: true  # 使用已存在的 Docker network，此 Compose 不建立或管理此 network
+    name: my_network  # MySQL, RabbitMQ, Worker 都加入同一個 bridge network 互相連線
