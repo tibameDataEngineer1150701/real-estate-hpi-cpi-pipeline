@@ -20,7 +20,7 @@ import io
 import time
 
 # Path configuration
-PROJECT_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = Path(__file__).resolve().parent.parent
 
 RAW_DIR = PROJECT_DIR / "raw"
 EXTRACTED_DIR = PROJECT_DIR / "extracted"
@@ -144,7 +144,6 @@ def extract_season(zip_path, extract_dir=EXTRACTED_DIR):
     #     return extract_dir
 
     # Selective extraction 選擇性解壓縮
-
     with zipfile.ZipFile(zip_path,"r") as zip_ref:
         extracted_count = 0
 
@@ -181,13 +180,11 @@ def extract_season(zip_path, extract_dir=EXTRACTED_DIR):
 def identify_files(extract_dir):
     """
     辨識解壓縮後的資料：
-
     1. manifest.csv
     2. schema
     3. 不動產買賣 A
     4. 預售屋買賣 B
-
-    C（不動產租賃）暫不處理
+    暫不處理：C（不動產租賃）
     """
 
     extract_dir = Path(extract_dir)
@@ -229,46 +226,37 @@ def validate_files(files, season):
     """
     驗證指定季度的必要檔案是否存在
     """
-
     print(f"\n========== Validate {season} ==========")
 
     # Manifest（資訊清單）
-
     if files["manifest"] is None:
         print("X 找不到 manifest.csv")
         return False
-
     print("manifest.csv")
 
     # Land A
-
     if not files["land_a"]:
         print("X 找不到不動產買賣 A")
         return False
-
     print(
         f"不動產買賣 A："
         f"{len(files['land_a'])} 份")
 
     # Land B
-
     if not files["land_b"]:
         print("X 找不到預售屋買賣 B")
         return False
-
     print(
         f"預售屋買賣 B："
         f"{len(files['land_b'])} 份")
 
     # Schema
-
     if not files["schema"]:
         print("! 找不到 schema")
     else:
         print(
             f"Schema："
             f"{len(files['schema'])} 份")
-
     return True
 
 
@@ -352,7 +340,7 @@ def run_pipeline(
                 succeeded += 1
                 print(f"V {season} pipeline completed")
 
-            except Exception as exc:
+            except (requests.RequestException, zipfile.BadZipFile, OSError, RuntimeError, ValueError) as exc:
                 failed.append({
                     "season": season,
                     "error": str(exc)})
