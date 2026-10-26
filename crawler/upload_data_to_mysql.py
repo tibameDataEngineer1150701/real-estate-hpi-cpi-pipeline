@@ -68,8 +68,7 @@ def upload_csv(engine, table_name: str, file_path: Path):
         f"{len(df)} rows，{len(df.columns)} columns"
     )
 
-    # append：新增資料，不主動覆蓋整張表
-    # 注意：append 把 CSV 資料新增到資料表，不自動判斷哪些資料已存在
+    # 注意：append 把 CSV 資料新增到資料表，不主動覆蓋整張表、不自動判斷哪些資料已存在
     df.to_sql(
         name=table_name,
         con=engine,
