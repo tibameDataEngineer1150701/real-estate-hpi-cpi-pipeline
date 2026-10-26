@@ -1,14 +1,15 @@
 """
+實價登錄資料清理與季度彙總
 Design a data quality validation process across Taiwan real-estate transaction CSV files (sale and presale).
 
 The pipeline automatically:
-- removes the English metadata row,
-- normalizes A/B schemas,
-- handles known CSV formatting inconsistencies,
-- investigates duplicate transactions,
-- converts ROC dates and numeric fields,
-- validates quarterly coverage,
-- applies residential and analysis-eligibility filters.
+- removes the English metadata row
+- normalizes A/B schemas
+- handles known CSV formatting inconsistencies
+- investigates duplicate transactions
+- converts ROC dates and numeric fields
+- validates quarterly coverage
+- applies residential and analysis-eligibility filters
 
 Current coverage:2016Q1 → 2026Q3
 
@@ -371,46 +372,6 @@ def load_all_b_csv():
 # Data Quality Check: Basic validation after ingestion and normalization.
 # ============================================================
 # source_file 係為了資料 lineage（資料來源追蹤）新增的 pipeline 衍生欄位，非原始交易資料欄位
-
-def validate_dataframe(df, name):
-    """
-    Validate the structure and basic data quality of a dataset.
-    """
-
-    print(f"\n{'=' * 70}")
-    print(f"{name} Validation")
-    print(f"{'=' * 70}")
-
-    print(f"Shape： {df.shape}")
-
-    required_columns = [
-        "鄉鎮市區",
-        "交易標的",
-        "土地位置建物門牌",
-        "交易年月日",
-        "交易筆棟數",
-        "建物型態",
-        "總價元",
-        "單價元平方公尺",
-        "車位類別",
-        "車位總價元",
-        "編號",
-        "transaction_type",
-        "source_file"]
-
-    # Check required columns
-    missing_columns = [column for column in required_columns if column not in df.columns]
-
-    if missing_columns:
-        raise ValueError(
-            f"{name} 缺少必要欄位：\n"
-            f"{missing_columns}")
-
-    print("Required columns: OK")
-
-    # Check transaction_type
-    print(f"Transaction types: "
-        f"{df['transaction_type'].dropna().unique().tolist()}")
 
 def validate_dataframe(
     df,
@@ -1015,11 +976,12 @@ def filter_six_municipalities(df):
 
 def aggregate_quarterly_transactions(df):
     """
-    依季度與六都彙總住宅交易資料
+    依季度period、六都municipality、成屋/預售屋transaction_type彙總住宅交易資料
 
     Output columns:
     - period
     - municipality
+    - transaction_type
     - avg_unit_price
     - median_unit_price
     - transaction_count
@@ -1029,7 +991,8 @@ def aggregate_quarterly_transactions(df):
 
     required_columns = [
         "period",
-        "municipality",
+        "municipality", 
+        "transaction_type",
         "單價元平方公尺"]
 
     missing_columns = [
@@ -1051,23 +1014,21 @@ def aggregate_quarterly_transactions(df):
         & analysis_df["municipality"].isin(SIX_MUNICIPALITIES)
         & analysis_df["單價元平方公尺"].notna()
         & (analysis_df["單價元平方公尺"] > 0)].copy()
-
+    
+    group_columns = [
+        "period",
+        "municipality",
+        "transaction_type"]
+    
     # 依季度、縣市彙總平均單價、成交筆數
     quarterly_df = (analysis_df
-        .groupby(
-            ["period", "municipality"],
-            as_index=False)
+        .groupby(group_columns, as_index=False)
         .agg(
-            avg_unit_price=(
-                "單價元平方公尺",
-                "mean"),
-            median_unit_price=(
-                "單價元平方公尺",
-                "median"),
-            transaction_count=(
-                "單價元平方公尺",
-                "size"))
-        .sort_values(["period", "municipality"]).reset_index(drop=True))
+            avg_unit_price=("單價元平方公尺", "mean"),
+            median_unit_price=("單價元平方公尺", "median"),
+            transaction_count=("單價元平方公尺", "size"))
+        .sort_values(["period", "municipality"])
+        .reset_index(drop=True))
 
     return quarterly_df
 
@@ -1319,23 +1280,6 @@ if __name__ == "__main__":
 
     print("\nTransaction type:")
     print(six_city_analysis["transaction_type"].value_counts())
-
-    # -----------------------------------------
-    # 14. Quarterly six-municipality aggregation 季度 x 六都
-    # -----------------------------------------
-
-    quarterly_six_city = (six_city_analysis
-                          .groupby(["period", "municipality"],as_index=False)
-                          .agg(avg_unit_price=("單價元平方公尺","mean"),
-                               transaction_count=("編號","count"))
-                               .sort_values(["period", "municipality"]))
-
-    print("\n" + "=" * 70)
-    print("Quarterly Six-Municipality Analysis")
-    print("=" * 70)
-
-    print(quarterly_six_city.head(20).to_string(index=False))
-
 
     # -----------------------------------------
     # A + B → Quarterly Aggregation → Parquet
