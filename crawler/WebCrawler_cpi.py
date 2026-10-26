@@ -111,11 +111,9 @@ def parse_cpi_json(data: dict) -> pd.DataFrame:
 
     series_values = series_dimensions[0]["values"]
 
-    total_index = next(
-        (
-            item
-            for item in series_values
-            if item["id"] == "1"),None)
+    total_index = next((item 
+                        for item in series_values
+                        if item["id"] == "1"),None)
 
     if total_index is None:
         raise ValueError("找不到 CPI「總指數」對應的 series。")
@@ -156,112 +154,125 @@ def parse_cpi_json(data: dict) -> pd.DataFrame:
 # 4. Clean monthly CPI
 # ============================================================
 
-def clean_cpi(cpi: pd.DataFrame) -> pd.DataFrame:
-    """Clean and validate monthly CPI data."""
+def clean_cpi(cpi_data: pd.DataFrame) -> pd.DataFrame:
+    """Clean and validate monthly CPI data, then rebase to 2016=100."""
 
-    cpi = cpi.copy()
+    cleaned_cpi = cpi_data.copy()
 
     required_columns = {"period_raw", "cpi_index"}
 
-    if not required_columns.issubset(cpi.columns):
+    if not required_columns.issubset(cleaned_cpi.columns):
         raise ValueError(f"CPI 缺少必要欄位：{required_columns}")
 
-    # --------------------------------------------------------
-    # Validate monthly period format
-    # --------------------------------------------------------
+    if cleaned_cpi.empty:
+        raise ValueError("原始 CPI 資料為空。")
 
-    period_text = cpi["period_raw"].astype(str)
+    # 1. Validate monthly period format
+    period_text = cleaned_cpi["period_raw"].astype(str)
 
     valid_period = period_text.str.fullmatch(r"\d{4}-M\d{1,2}")
 
     if not valid_period.all():
-        invalid_periods = (cpi.loc[~valid_period, "period_raw"].tolist())
-
+        invalid_periods = cleaned_cpi.loc[
+            ~valid_period, "period_raw"].tolist()
         raise ValueError(f"CPI period 格式異常：{invalid_periods}")
 
-    # --------------------------------------------------------
-    # Convert period to datetime
-    # --------------------------------------------------------
+    # 2. Convert period to datetime
+    year_month = (period_text
+                  .str.replace("-M", "-", regex=False)
+                  .str.split("-", expand=True))
 
-    year_month = (
-        period_text
-        .str.replace("-M", "-", regex=False)
-        .str.split("-", expand=True))
+    cleaned_cpi["date"] = pd.to_datetime(
+        year_month[0] + "-" + year_month[1].str.zfill(2),
+        format="%Y-%m", errors="raise")
 
-    cpi["date"] = pd.to_datetime(
-        year_month[0]
-        + "-"
-        + year_month[1].str.zfill(2),
-        format="%Y-%m",
-        errors="raise")
-
-    # --------------------------------------------------------
-    # Check duplicate months
-    # --------------------------------------------------------
-
-    if cpi["date"].duplicated().any():
-        duplicates = (cpi.loc[cpi["date"].duplicated(keep=False),
-                              "period_raw"].tolist())
-
+    # 3. Check duplicate months
+    if cleaned_cpi["date"].duplicated().any():
+        duplicates = cleaned_cpi.loc[
+            cleaned_cpi["date"].duplicated(keep=False),
+            "period_raw"].tolist()
         raise ValueError(f"CPI 存在重複月份：{duplicates}")
 
-    # --------------------------------------------------------
-    # Convert CPI to numeric
-    # --------------------------------------------------------
+    # 4. Convert CPI to numeric
+    cleaned_cpi["cpi_index"] = pd.to_numeric(
+        cleaned_cpi["cpi_index"], errors="coerce")
 
-    cpi["cpi_index"] = pd.to_numeric(cpi["cpi_index"], errors="coerce")
-
-    if cpi["cpi_index"].isna().any():
+    if cleaned_cpi["cpi_index"].isna().any():
         raise ValueError("CPI 指數包含缺失值或非數值資料。")
 
-    # --------------------------------------------------------
-    # Handle unpublished observations
-    # --------------------------------------------------------
-    # Assumption: API value 0 means unpublished data.
-    # Verify this assumption against the API's data definition.
+    # 5. Handle non-positive CPI values
+    invalid_mask = cleaned_cpi["cpi_index"] <= 0
 
-    unpublished = cpi["cpi_index"] == 0
+    if invalid_mask.any():
+        invalid_data = cleaned_cpi.loc[
+            invalid_mask, ["period_raw", "date", "cpi_index"]].copy()
 
-    if unpublished.any():
+        invalid_data["month"] = invalid_data["date"].dt.to_period("M")
 
-        unpublished_periods = (
-            cpi.loc[unpublished, "period_raw"].tolist())
+        # 以執行當下的月份為基準
+        current_month = pd.Timestamp.today().to_period("M")
 
-        print(
-            "警告：以下月份 CPI 回傳 0，"
-            "依目前設定視為尚未公布並排除：")
-        print(unpublished_periods)
+        # 僅將當月或未來月份的非正數視為「可能尚未發布」
+        unpublished_mask = invalid_data["month"] >= current_month
 
-        cpi = cpi.loc[~unpublished].copy()
+        unpublished_data = invalid_data.loc[unpublished_mask]
+        historical_invalid_data = invalid_data.loc[~unpublished_mask]
 
-    # CPI index should be positive.
-    if (cpi["cpi_index"] < 0).any():
-        raise ValueError("CPI 指數不可為負數。")
+        # 歷史月份非正數不能直接忽略
+        if not historical_invalid_data.empty:
+            invalid_periods = historical_invalid_data["period_raw"].tolist()
+            raise ValueError(f"歷史 CPI 資料包含非正數：{invalid_periods}")
 
-    if cpi.empty:
-        raise ValueError("清理後 CPI 資料為空。")
+        # 排除可能尚未發布的月份
+        if not unpublished_data.empty:
+            unpublished_periods = unpublished_data["period_raw"].tolist()
 
-    return cpi.sort_values("date").reset_index(drop=True)
+            print(f"Warning: 排除當月或未來月份的非正數 CPI：{unpublished_periods}")
+
+            cleaned_cpi = cleaned_cpi.loc[~cleaned_cpi["period_raw"]
+                                          .isin(unpublished_periods)].copy()
+
+    if cleaned_cpi.empty:
+        raise ValueError("排除無效 CPI 資料後，無可用資料。")
+
+    # 6. Rebase CPI to 2016 annual average = 100
+    base_year_data = cleaned_cpi.loc[
+        cleaned_cpi["date"].dt.year == BASE_YEAR, "cpi_index"]
+
+    if len(base_year_data) != 12:
+        raise ValueError(
+            f"{BASE_YEAR} 年 CPI 資料應有 12 個月，"
+            f"實際取得 {len(base_year_data)} 個月。")
+
+    base_2016_mean = base_year_data.mean()
+
+    if pd.isna(base_2016_mean) or base_2016_mean <= 0:
+        raise ValueError("無法計算有效的 2016 年 CPI 基期。")
+
+    cleaned_cpi.loc[:, "cpi_index"] = (
+        cleaned_cpi["cpi_index"] / base_2016_mean * 100)
+
+    return cleaned_cpi.sort_values("date").reset_index(drop=True)
 
 
 # ============================================================
 # 5. Convert monthly CPI to quarterly period
 # ============================================================
 
-def transform_cpi(cpi: pd.DataFrame) -> pd.DataFrame:
+def transform_cpi(cpi_data: pd.DataFrame) -> pd.DataFrame:
     """Convert monthly dates to quarterly periods."""
 
-    cpi = cpi.copy()
+    cpi_data = cpi_data.copy()
 
-    if "date" not in cpi.columns:
+    if "date" not in cpi_data.columns:
         raise ValueError("缺少 date 欄位，請先執行 clean_cpi()。")
 
-    cpi["period"] = (
-        cpi["date"]
+    cpi_data["period"] = (
+        cpi_data["date"]
         .dt.to_period("Q")
         .astype(str))
 
-    return cpi
+    return cpi_data
 
 
 # ============================================================

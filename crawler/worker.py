@@ -26,6 +26,7 @@ logger.info(f"""
 app = Celery(
     "task",
     # include: 告訴 Celery 要載入哪些 Python 模組裡的 task
+    # 僅載入任務模組、讓 Celery 註冊任務，並非指定任務要進哪條佇列(須設定 task_routes)
     # 只有列在這裡的模組, 裡面用 @app.task 裝飾的函式才會被註冊為可執行任務
     include=[
         "crawler.tasks",  # 一般任務
@@ -36,5 +37,12 @@ app = Celery(
     # broker: 指定訊息中介的連線網址, Celery 會把任務送到這裡排隊
     # 格式: pyamqp://帳號:密碼@主機:埠號/
     # 例如: pyamqp://worker:worker@127.0.0.1:5672/
-    broker=f"pyamqp://{WORKER_ACCOUNT}:{WORKER_PASSWORD}@rabbitmq:{RABBITMQ_PORT}/",
-)
+    # 主機名稱由 crawler.config 管理
+    broker=f"pyamqp://{WORKER_ACCOUNT}:{WORKER_PASSWORD}"f"@{RABBITMQ_HOST}:{RABBITMQ_PORT}/",)
+
+# 將各任務路由到指定佇列
+app.conf.task_routes = {
+    "crawler.tasks_WebCrawler_real_estate.*": {"queue": "real-estate"},
+    "crawler.tasks_WebCrawler_hpi.*": {"queue": "hpi"},
+    "crawler.tasks_WebCrawler_cpi.*": {"queue": "cpi"}
+    }
