@@ -279,8 +279,7 @@ def transform_cpi(cpi_data: pd.DataFrame) -> pd.DataFrame:
 # 6. Aggregate monthly CPI to quarterly CPI
 # ============================================================
 
-def aggregate_quarterly(
-    cpi: pd.DataFrame) -> pd.DataFrame:
+def aggregate_quarterly(cpi: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate quarterly CPI using the mean of three months.
 
@@ -288,18 +287,14 @@ def aggregate_quarterly(
     Incomplete quarters: exclude and print warning.
     """
 
-    quarterly = (
-        cpi.groupby("period")
-        .agg(
-            cpi_index=("cpi_index", "mean"),
-            month_count=("cpi_index", "count")).reset_index())
+    quarterly = (cpi.groupby("period").agg(
+        cpi_index=("cpi_index", "mean"),
+        month_count=("cpi_index", "count")).reset_index())
 
     incomplete = quarterly[quarterly["month_count"] != 3]
 
     if not incomplete.empty:
-        print(
-            "警告：以下季度的 CPI 月資料不完整，"
-            "將排除：")
+        print("警告：以下季度的 CPI 月資料不完整，將排除：")
         print(incomplete["period"].tolist())
 
     quarterly = quarterly[quarterly["month_count"] == 3].copy()
@@ -315,13 +310,10 @@ def aggregate_quarterly(
 
 
 # ============================================================
-# 7. Validate quarterly CPI
+# 7. Validate final quarterly CPI dataset
 # ============================================================
 
-def validate_quarterly_cpi(
-    cpi: pd.DataFrame,) -> pd.DataFrame:
-    """Validate final quarterly CPI dataset."""
-
+def validate_quarterly_cpi(cpi: pd.DataFrame) -> pd.DataFrame:
     cpi = cpi.copy()
 
     required_columns = {"period", "cpi_index"}
@@ -383,12 +375,10 @@ def validate_quarterly_cpi(
 
 
 # ============================================================
-# 8. Save quarterly CPI to Parquet and CSV
+# 8. Save final quarterly CPI to Parquet and CSV
 # ============================================================
 
 def save_cpi(cpi: pd.DataFrame) -> None:
-    """Save quarterly CPI data to Parquet and CSV."""
-
     PROCESSED_DIR.mkdir(
         parents=True,
         exist_ok=True)
