@@ -38,6 +38,23 @@ The real-estate pipeline provides the housing-market side of that analysis.
 7. Calculate inflation-adjusted Real HPI.
 8. Store processed datasets in Parquet format for downstream analysis.
 
+real-estate-hpi-cpi-pipeline/
+│
+├── crawler/
+│   ├── WebCrawler_hpi.py
+│   ├── WebCrawler_cpi.py
+│   └── processed/
+│       ├── housing_price_index.csv
+│       └── cpi.csv
+│
+├── analysis.py
+│
+├── processed/
+│   ├── residential_transactions_quarterly.csv
+│   ├── residential_transactions_quarterly.parquet
+│   └── housing_market_integrated.csv
+│
+└── integrate_hpi_cpi.py
 ---
 
 ## 2. Data Sources

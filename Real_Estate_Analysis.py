@@ -52,6 +52,7 @@ Residential filter
 Analysis eligibility
 """
 from pathlib import Path
+from loguru import logger
 import pandas as pd
 
 # ============================================================
@@ -762,8 +763,14 @@ def convert_data_types(df, name):
 
         except (ValueError, TypeError):
             return pd.NaT
-
+        
+    # 區分:原始日期空白、原始日期有值，但格式錯誤或日期不存在、日期成功轉換
+    # 例如 41208 因長度不符目前支援的六位或七位格式而轉換失敗；原始值仍保留，可供追蹤
+    df["transaction_date_raw"] = df["交易年月日"]
     df["transaction_date"] = (df["交易年月日"].apply(convert_roc_date))
+    raw_date = (df["交易年月日"].astype("string").str.strip())
+    raw_date_missing = (raw_date.isna() | raw_date.eq(""))
+    df["date_conversion_failed"] = (~raw_date_missing & df["transaction_date"].isna())
 
     # --------------------------------------------------
     # 2. Convert numeric columns
@@ -775,32 +782,30 @@ def convert_data_types(df, name):
         "車位總價元"]
 
     for column in numeric_columns:
+        # 保留原始欄位內容，總價元_raw：轉換型態前的原始文字
+        df[f"{column}_raw"] = df[column]
+        # 總價元：轉換後的數值
         raw = df[column].astype("string").str.strip()
-
-        # 原始欄位為空
-        raw_missing = (raw.isna() | raw.eq(""))
-
-        # 非空，但無法轉成數值
+        # 總價元_conversion_failed：原始值非Null、但無法轉成數值的標記
+        raw_missing = raw.isna() | raw.eq("")
         converted = pd.to_numeric(raw, errors="coerce")
 
-        conversion_failed = (
-            ~raw_missing
-            & converted.isna())
+        conversion_failed = ~raw_missing & converted.isna()
+
+        # 保存品質標記，供後續追蹤
+        df[f"{column}_conversion_failed"] = conversion_failed
 
         print(f"\n{column}")
         print(f"Original missing values: {raw_missing.sum()}")
         print(f"Numeric conversion failures: {conversion_failed.sum()}")
-
-        # 保存原始文字，供後續追溯
-        df[f"{column}_raw"] = df[column]
 
         df[column] = converted
 
     # --------------------------------------------------
     # 3. Create quarter period
     # --------------------------------------------------
-
-    df["period"] = (df["transaction_date"].dt.to_period("Q").astype(str))
+    # "string"會使用 pandas nullable string 型態，讓缺失期間保留為 <NA>
+    df["period"] = (df["transaction_date"].dt.to_period("Q").astype("string"))
 
     print("Type conversion completed.")
 
@@ -826,9 +831,9 @@ def check_transaction_period_coverage(
     expected_periods = pd.period_range(
         start=start_period,
         end=end_period,
-        freq="Q").astype(str)
+        freq="Q").astype("string")
 
-    period_series = df["period"].dropna().astype(str)
+    period_series = df["period"].dropna().astype("string")
 
     actual_periods = set(period_series)
     expected_period_set = set(expected_periods)
@@ -1266,6 +1271,20 @@ def export_quarterly_csv(df):
     print(f"CSV exported: {OUTPUT_CSV}")
     print(f"Rows: {len(df)}")
 
+
+def log_row_count(stage: str, df: pd.DataFrame, previous_count: int | None = None):
+    """記錄各處理階段的資料筆數與排除筆數。"""
+    current_count = len(df)
+
+    # previous_count：上一階段筆數；不提供時只記錄目前筆數
+    if previous_count is None:
+        logger.info(f"[筆數對帳] {stage}：{current_count:,} 筆")
+    else:
+        excluded_count = previous_count - current_count
+        logger.info(
+            f"[筆數核對] {stage}：{current_count:,} 筆；"
+            f"本階段減少 {excluded_count:,} 筆")
+
 # ============================================================
 # Main
 # ============================================================
@@ -1278,6 +1297,9 @@ if __name__ == "__main__":
 
     df_a = load_all_a_csv()
     df_b = load_all_b_csv()
+
+    log_row_count("A csv載入完成", df_a)
+    log_row_count("B csv載入完成", df_b)
 
     # -----------------------------------------
     # 2. Validate schema
@@ -1300,8 +1322,14 @@ if __name__ == "__main__":
     # 4. Remove exact duplicates
     # -----------------------------------------
 
+    a_before = len(df_a)
+    b_before = len(df_b)
+
     df_a = remove_exact_duplicates(df_a, "A")
     df_b = remove_exact_duplicates(df_b, "B")
+
+    log_row_count("A csv 去重後", df_a, a_before)
+    log_row_count("B csv 去重後", df_b, b_before)
 
     # -----------------------------------------
     # 5. Convert data types
@@ -1328,20 +1356,20 @@ if __name__ == "__main__":
     # 8. Residential transaction filter
     # -----------------------------------------
 
+    before_count = len(df_a)
     df_a_residential = filter_residential_transactions(df_a)
+    log_row_count("A 類住宅交易篩選後", df_a_residential,before_count)  # 實際篩選結果放在 df_a_residential
+
+    before_count = len(df_b)
     df_b_residential = filter_residential_transactions(df_b)
+    log_row_count("B 類住宅交易篩選後", df_b_residential, before_count) # 實際篩選結果放在 df_b_residential
 
     print("\n" + "=" * 70)
     print("Residential Transactions")
     print("=" * 70)
 
-    print(
-        f"A residential transactions: "
-        f"{len(df_a_residential):,}")
-
-    print(
-        f"B residential transactions: "
-        f"{len(df_b_residential):,}")
+    print(f"A residential transactions: "f"{len(df_a_residential):,}")
+    print(f"B residential transactions: "f"{len(df_b_residential):,}")
 
     # -----------------------------------------
     # 9. Future-dated residential transactions
@@ -1418,8 +1446,13 @@ if __name__ == "__main__":
     # 11. Analysis eligibility
     # -----------------------------------------
 
+    before_count = len(df_a_residential)
     df_a_analysis = filter_analysis_eligible_transactions(df_a_residential)
+    log_row_count("A 類分析資格篩選後", df_a_analysis, before_count)  # 實際結果放在 df_a_analysis
+
+    before_count = len(df_b_residential)
     df_b_analysis = filter_analysis_eligible_transactions(df_b_residential)
+    log_row_count("B 類分析資格篩選後", df_b_analysis, before_count)  # 實際結果放在 df_b_analysis
 
     print("\n" + "=" * 70)
     print("Analysis-Eligible Transactions")
@@ -1435,42 +1468,42 @@ if __name__ == "__main__":
     # 12. Six municipalities
     # -----------------------------------------
 
+    # A 類：六都篩選及筆數對帳
+    a_before = len(df_a_analysis)
+
     six_city_a_analysis = filter_six_municipalities(df_a_analysis)
+
+    log_row_count("A 類六都篩選後", six_city_a_analysis, a_before)
+
+    # B 類：六都篩選及筆數對帳
+    b_before = len(df_b_analysis)
+
     six_city_b_analysis = filter_six_municipalities(df_b_analysis)
 
-    print("\n" + "=" * 70)
-    print("Six Municipalities")
-    print("=" * 70)
+    log_row_count("B 類六都篩選後", six_city_b_analysis, b_before)
 
-    print("\nA:")
-    print(
-        six_city_a_analysis["municipality"]
-        .value_counts()
-        .sort_index())
-
-    print("\nB:")
-    print(
-        six_city_b_analysis["municipality"]
-        .value_counts()
-        .sort_index())
 
     # -----------------------------------------
     # 13. Combine A and B analysis data for further analysis
     # -----------------------------------------
 
-    six_city_analysis = pd.concat([six_city_a_analysis,
-                                   six_city_b_analysis],
-                                   ignore_index=True)
+    six_city_analysis = pd.concat([six_city_a_analysis, six_city_b_analysis], ignore_index=True)
 
-    print("\n" + "=" * 70)
-    print("Combined Six-Municipality Analysis Data")
-    print("=" * 70)
+    # 記錄合併後的總筆數
+    log_row_count("A、B 類六都資料合併後", six_city_analysis)
 
-    print(f"Total six-municipality analysis rows: "
-          f"{len(six_city_analysis):,}")
+    # 驗證合併後筆數是否等於A類 + B類
+    expected_count = (len(six_city_a_analysis) + len(six_city_b_analysis))
 
-    print("\nTransaction type:")
-    print(six_city_analysis["transaction_type"].value_counts())
+    actual_count = len(six_city_analysis)
+
+    if actual_count != expected_count:
+        raise ValueError(
+            "A、B 類資料合併後筆數不一致："
+            f"預期 {expected_count:,} 筆，"
+            f"實際 {actual_count:,} 筆")
+
+    logger.success(f"A、B 類資料合併筆數驗證通過："f"{actual_count:,} 筆")
 
     # -----------------------------------------
     # A + B → Quarterly Aggregation → Parquet
@@ -1483,6 +1516,7 @@ if __name__ == "__main__":
 
     # 依季度、縣市、交易類型彙總
     quarterly_six_city = aggregate_quarterly_transactions(six_city_analysis)
+    log_row_count("季度彙總完成", quarterly_six_city)  # 單純記錄輸出筆數
 
     print("\n========== Quarterly Aggregation ==========")
     print(quarterly_six_city.head(10).to_string(index=False))
