@@ -1,6 +1,6 @@
 # Real HPI = HPI_2016_base100 / CPI_2016_base100 x 100%
-# 排除通膨後觀察房價趨勢: HPI -> 名目房價指數(Nominal HPI)，Real HPI -> CPI 扣除通膨因素後的房價指數，輔助分析"扣除通膨後，房價實質上漲多少?"
-# 比較不同時期的實質房價變化: 比 HPI 更適合觀察"實際購買力意義上的房價變化"
+# 排除通膨後觀察房價趨勢: HPI = 名目房價指數(Nominal HPI)，Real HPI = CPI 扣除通膨因素後的HPI，輔助分析"扣除通膨後，房價實質上漲多少?"
+# 比較不同時期的實質房價變化: Real HPI 比 HPI 更適合觀察"實際購買力意義上的房價變化"
 # 2016Q1: HPI_2016_base100 = 99.32, CPI_2016_base100 = 99.1828, Real HPI = 100.1383, 99.32 / 99.1828 × 100 ≈ 100.1383
 
 import pandas as pd
@@ -22,10 +22,9 @@ print("Project directory:", PROJECT_DIR)
 print("Processed directory:", PROCESSED_DIR)
 
 
-# 1. Load HPI and CPI
+# 1. Load HPI and CPI Parquet files
 
 def load_data():
-    """Load quarterly HPI and CPI Parquet files."""
 
     if not HPI_FILE.exists():
         raise FileNotFoundError(f"HPI file not found: {HPI_FILE}")
@@ -66,7 +65,7 @@ def validate_source_data(hpi: pd.DataFrame, cpi: pd.DataFrame):
     hpi = hpi.copy()
     cpi = cpi.copy()
 
-    # Normalize period data types
+    # Normalize period data types (string) and check for missing values
 
     hpi["period"] = hpi["period"].astype("string")
     cpi["period"] = cpi["period"].astype("string")
@@ -77,7 +76,7 @@ def validate_source_data(hpi: pd.DataFrame, cpi: pd.DataFrame):
     if cpi["period"].isna().any():
         raise ValueError("CPI period contains missing values.")
 
-    # Validate quarterly period format
+    # Validate quarterly period format (YYYYQn)
 
     hpi_valid = hpi["period"].str.fullmatch(r"\d{4}Q[1-4]")
 
@@ -92,12 +91,10 @@ def validate_source_data(hpi: pd.DataFrame, cpi: pd.DataFrame):
     # Validate numeric values
 
     hpi["housing_price_index"] = pd.to_numeric(
-        hpi["housing_price_index"],
-        errors="coerce")
+        hpi["housing_price_index"], errors="coerce")
 
     cpi["cpi_index"] = pd.to_numeric(
-        cpi["cpi_index"],
-        errors="coerce")
+        cpi["cpi_index"], errors="coerce")
 
     if not np.isfinite(hpi["housing_price_index"]).all():
         raise ValueError("HPI 包含無限大或非有限數值。")
@@ -125,7 +122,7 @@ def validate_source_data(hpi: pd.DataFrame, cpi: pd.DataFrame):
     if cpi["period"].duplicated().any():
         raise ValueError("Duplicate CPI quarters found.")
 
-    # Validate 2016 base-year CPI data
+    # Validate 2016 base-year CPI data and ensure it contains all four quarters
 
     cpi_2016 = cpi[cpi["period"].str.startswith("2016")]
 
@@ -138,9 +135,7 @@ def validate_source_data(hpi: pd.DataFrame, cpi: pd.DataFrame):
     actual_2016_periods = set(cpi_2016["period"])
 
     if actual_2016_periods != expected_2016_periods:
-        raise ValueError(
-            "2016 年 CPI 季資料不完整，"
-            "請確認是否包含 Q1 至 Q4。")
+        raise ValueError("2016 年 CPI 季資料不完整，請確認是否包含 Q1 至 Q4。")
 
     return hpi, cpi
 
@@ -151,7 +146,7 @@ def normalize_cpi_base_year(
     cpi: pd.DataFrame, base_year: int = 2016) -> pd.DataFrame:
     """
     Normalize quarterly CPI so that the annual average
-    of the base year equals 100.
+    of the base year 2016 equals to 100.
     """
 
     cpi = cpi.copy()
