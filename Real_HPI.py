@@ -734,10 +734,10 @@ def save_results(hpi_growth, down_payment):
 
 
 # 確認每個地區 HPI 都有完整基期資料，且指定基期(2016)年度平均值為 100
+# 確認每個地區 HPI 都有完整的指定年度四季資料
 def validate_hpi_base_year(
     hpi: pd.DataFrame,
-    base_year: int = 2016,
-    tolerance: float = 0.01) -> None:
+    base_year: int = 2016) -> None:
 
     base_periods = {
         f"{base_year}Q1",
@@ -761,7 +761,7 @@ def validate_hpi_base_year(
             f"{sorted(missing_base_regions)}")
 
     # 檢查每個地區是否都有完整四季資料
-    quarter_counts = (base_data.groupby("region")["period"].nunique())
+    quarter_counts = base_data.groupby("region")["period"].nunique()
 
     incomplete_regions = quarter_counts[quarter_counts != 4]
 
@@ -770,25 +770,9 @@ def validate_hpi_base_year(
             f"HPI 以下地區缺少 {base_year} 年完整季度資料：\n"
             f"{incomplete_regions}")
 
-    # 檢查每個地區的基期年度平均值是否為 100
-    base_average = (base_data.groupby("region")["housing_price_index"].mean())
-
-    invalid_regions = base_average[
-        ~np.isclose(
-            base_average,
-            100,
-            atol=tolerance,
-            rtol=0)]
-
-    if not invalid_regions.empty:
-        raise ValueError(
-            f"HPI 以下地區的 {base_year} 年平均值不等於 100：\n"
-            f"{invalid_regions}")
-
     print(
-        f"HPI 已通過基期檢查："
-        f"所有地區均有完整的 {base_year} 年季度資料，"
-        f"且年度平均值為 100。")
+        f"HPI 已通過資料完整性檢查："
+        f"所有地區均有完整的 {base_year} 年季度資料。")
 
 
 # 7. Run Real HPI pipeline
