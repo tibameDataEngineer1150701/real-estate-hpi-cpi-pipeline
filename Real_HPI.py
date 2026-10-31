@@ -23,6 +23,7 @@
 以利與同樣以 2016 年平均為基期的 CPI 配對，計算實質房價指數。
 歷史十年年化成長率則以同一地區相隔 40 季的官方 HPI 比值計算，
 並用於未來十年名目房價及購屋頭期款的情境估算。
+實質房價指數 → 十年名目房價成長率 → 未來購屋頭期款
 """
 
 import pandas as pd
@@ -321,8 +322,9 @@ def calculate_real_hpi(data: pd.DataFrame) -> pd.DataFrame:
     real_hpi = data.copy()
 
     real_hpi["real_hpi"] = (
-        real_hpi["housing_price_index"]
-        / real_hpi["cpi_2016_base100"] * 100)
+        real_hpi["hpi_2016_base100"]
+        / real_hpi["cpi_2016_base100"]
+        * 100)
 
     return real_hpi
 
@@ -583,6 +585,12 @@ def calculate_down_payment_target(
     # 5. 
     if (growth["hpi_growth_10y"] <= -1).any():
         raise ValueError("HPI annualized growth rate must be greater than -100%.")
+
+    invalid_growth = growth[~growth["hpi_growth_10y"].between(0, 0.15)]
+
+    if not invalid_growth.empty:
+        print("下列 HPI 成長率超出 0%–15%(合理範圍)：")
+        print(invalid_growth[["period", "region", "hpi_growth_10y"]])
 
     if not 0 < down_payment_ratio <= 1:
         raise ValueError("down_payment_ratio must be between 0 and 1.")

@@ -287,7 +287,7 @@ def read_b_csv(file_path):
     return df
 
 # ============================================================
-# Clean and standardize a DataFrame
+# Clean and standardize a DataFrame (成屋)
 # ============================================================
 
 def clean_a_dataframe(df):
@@ -296,13 +296,13 @@ def clean_a_dataframe(df):
     df = df[COMMON_COLUMNS].copy()
 
     # Identify transaction type: sale
-    df["transaction_type"] = "不動產買賣"
+    df["transaction_type"] = "成屋"
 
     return df
 
 
 # ============================================================
-# Clean and standardize b DataFrame
+# Clean and standardize b DataFrame (預售屋)
 # ============================================================
 
 def clean_b_dataframe(df):
@@ -314,7 +314,6 @@ def clean_b_dataframe(df):
     df["transaction_type"] = "預售屋買賣"
 
     return df
-
 
 
 # ============================================================
