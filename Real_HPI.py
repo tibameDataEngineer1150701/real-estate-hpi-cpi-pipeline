@@ -1,16 +1,17 @@
 # Real HPI = HPI_2016_base100 / CPI_2016_base100 * 100
-#
+# Normalize quarterly CPI so that the annual average of the specified base year equals 100.
+
 # HPI：名目房價指數（Nominal House Price Index）
 # CPI：消費者物價指數（Consumer Price Index）
 # Real HPI：以 CPI 調整通膨後的實質房價指數
 #
 # 用途：
-# 1. 排除一般物價上漲因素，觀察房價的實質變化。
-# 2. 比較不同時期房價的實質購買力變化。
+# 1. 排除一般物價上漲因素，觀察房價實質變化。
+# 2. 比較不同時期房價實質購買力變化。
 #
 # 基期：
-# HPI 與 CPI 均須使用 2016 年平均 = 100。
-# 注意：執行計算前，必須確認原始 HPI 的基期定義。
+# HPI 與 CPI 均使用 2016 年平均 = 100。
+# 計算前，必須確認原始 HPI 基期定義。
 #
 # Example -- 2016Q1:
 # HPI_2016_base100 = 99.32
@@ -74,162 +75,146 @@ def load_data():
     return hpi, cpi, transactions
 
 
-# 2. Validate HPI and CPI before merging
-def validate_source_data(hpi: pd.DataFrame, cpi: pd.DataFrame, transactions: pd.DataFrame):
+# 2. Validate HPI, CPI, and residential transaction source data before merging 來源資料基本驗證
+# 檢查必要欄位 → 複製資料 → 型別轉換 → 檢查缺值與格式 → 檢查數值 → 檢查基期資料 → 檢查重複鍵值 → 回傳資料
+def validate_source_data(
+    hpi: pd.DataFrame,
+    cpi: pd.DataFrame,
+    transactions: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 
-    # Required columns
+    # 1. Validate required columns 驗證交易資料必要欄位
+    required_hpi = {
+        "period",
+        "region",
+        "housing_price_index"}
 
-    required_hpi = {"period", "region", "housing_price_index"}
-    required_cpi = {"period", "cpi_index"}
-
-    if not required_hpi.issubset(hpi.columns):
-        raise ValueError(
-            f"HPI missing columns: "
-            f"{required_hpi - set(hpi.columns)}")
-
-    if not required_cpi.issubset(cpi.columns):
-        raise ValueError(
-            f"CPI missing columns: "
-            f"{required_cpi - set(cpi.columns)}")
-
-    hpi = hpi.copy()
-    cpi = cpi.copy()
-    transactions = transactions.copy()
+    required_cpi = {
+        "period",
+        "cpi_index"}
 
     required_transactions = {
         "period",
         "municipality",
         "median_unit_price"}
 
-    if not required_transactions.issubset(transactions.columns):
-        raise ValueError(
-            f"Transaction data missing columns: "
-            f"{required_transactions - set(transactions.columns)}")
+    # 空資料檢查
+    # 避免 HPI、CPI 或交易資料為空時，部分 .all() 檢查因為無資料而通過
+    if hpi.empty:
+        raise ValueError("HPI source data is empty.")
 
+    if cpi.empty:
+        raise ValueError("CPI source data is empty.")
+
+    if transactions.empty:
+        raise ValueError("Transaction source data is empty.")
+    
+    if not required_hpi.issubset(hpi.columns):
+        raise ValueError(f"HPI missing columns: {required_hpi - set(hpi.columns)}")
+
+    if not required_cpi.issubset(cpi.columns):
+        raise ValueError(f"CPI missing columns: {required_cpi - set(cpi.columns)}")
+
+    if not required_transactions.issubset(transactions.columns):
+        raise ValueError("Transaction data missing columns: "
+                         f"{required_transactions - set(transactions.columns)}")
+
+    # 2. Copy data to avoid modifying the original DataFrames
+    hpi = hpi.copy()
+    cpi = cpi.copy()
+    transactions = transactions.copy()
+
+    # 3. Normalize data types and clean region names
+    hpi["period"] = hpi["period"].astype("string")
+    cpi["period"] = cpi["period"].astype("string")
     transactions["period"] = transactions["period"].astype("string")
 
-    transactions["municipality"] = (
-        transactions["municipality"].astype("string").str.strip())
+    hpi["region"] = hpi["region"].astype("string").str.strip()
+
+    transactions["municipality"] = (transactions["municipality"].astype("string").str.strip())
+
+    # 4. Convert numeric columns
+    hpi["housing_price_index"] = pd.to_numeric(
+        hpi["housing_price_index"],
+        errors="coerce")
+
+    cpi["cpi_index"] = pd.to_numeric(
+        cpi["cpi_index"],
+        errors="coerce")
 
     transactions["median_unit_price"] = pd.to_numeric(
         transactions["median_unit_price"],
         errors="coerce")
 
-    # Normalize period data types (string) and check for missing values
+    # 5. Validate missing values
+    if hpi[["period", "region", "housing_price_index"]].isna().any().any():
+        raise ValueError("HPI contains missing values.")
 
-    hpi["period"] = hpi["period"].astype("string")
-    cpi["period"] = cpi["period"].astype("string")
+    if cpi[["period", "cpi_index"]].isna().any().any():
+        raise ValueError("CPI contains missing values.")
 
-    if hpi["period"].isna().any():
-        raise ValueError("HPI period contains missing values.")
+    if transactions[
+        ["period", "municipality", "median_unit_price"]].isna().any().any():
+        raise ValueError("Transaction data contains missing values.")
 
-    if cpi["period"].isna().any():
-        raise ValueError("CPI period contains missing values.")
+    # 6. Validate empty region names
+    if hpi["region"].eq("").any():
+        raise ValueError("HPI region contains empty values.")
 
-    # Validate quarterly period format (YYYYQn)
+    if transactions["municipality"].eq("").any():
+        raise ValueError("Transaction municipality contains empty values.")
 
-    hpi_valid = hpi["period"].str.fullmatch(r"\d{4}Q[1-4]")
+    # 7. Validate quarterly period format (YYYYQn) 三份資料都使用相同季度格式
+    period_pattern = r"\d{4}Q[1-4]"
 
-    cpi_valid = cpi["period"].str.fullmatch(r"\d{4}Q[1-4]")
-
-    if not hpi_valid.all():
+    if not hpi["period"].str.fullmatch(period_pattern).all():
         raise ValueError("HPI period format must be YYYYQn.")
 
-    if not cpi_valid.all():
+    if not cpi["period"].str.fullmatch(period_pattern).all():
         raise ValueError("CPI period format must be YYYYQn.")
 
-    # Validate numeric values
+    if not transactions["period"].str.fullmatch(period_pattern).all():
+        raise ValueError("Transaction period format must be YYYYQn.")
 
-    hpi["housing_price_index"] = pd.to_numeric(
-        hpi["housing_price_index"], errors="coerce")
+    # 8. Validate finite numeric values
+    numeric_columns = {
+        "HPI": hpi["housing_price_index"],
+        "CPI": cpi["cpi_index"],
+        "Transaction median unit price": transactions["median_unit_price"]}
 
-    cpi["cpi_index"] = pd.to_numeric(
-        cpi["cpi_index"], errors="coerce")
+    for name, values in numeric_columns.items():
+        if not np.isfinite(values.to_numpy(dtype=float)).all():
+            raise ValueError(f"{name} contains non-finite values.")
 
-    if not np.isfinite(hpi["housing_price_index"]).all():
-        raise ValueError("HPI 包含無限大或非有限數值。")
-
-    if not np.isfinite(cpi["cpi_index"]).all():
-        raise ValueError("CPI 包含無限大或非有限數值。")
-
-    if not np.isfinite(transactions["median_unit_price"]).all():
-        raise ValueError("Transaction median unit price contains non-finite values.")
-    
-    if hpi[["region", "housing_price_index"]].isna().any().any():
-        raise ValueError("HPI contains missing region or index values.")
-
-    if cpi["cpi_index"].isna().any():
-        raise ValueError("CPI contains missing index values.")
-
+    # 9. Validate positive index and price values
     if (hpi["housing_price_index"] <= 0).any():
         raise ValueError("HPI index must be greater than zero.")
 
     if (cpi["cpi_index"] <= 0).any():
         raise ValueError("CPI index must be greater than zero.")
 
-    hpi["region"] = hpi["region"].astype("string").str.strip()
+    if (transactions["median_unit_price"] <= 0).any():
+        raise ValueError("Transaction median unit price must be greater than zero.")
 
-    transactions["municipality"] = (transactions["municipality"].astype("string").str.strip())
-
-    # Validate duplicate keys
-
-    if hpi.duplicated(["period", "region"]).any():
-        raise ValueError("Duplicate HPI period-region combinations found.")
-
-    if cpi["period"].duplicated().any():
-        raise ValueError("Duplicate CPI quarters found.")
-
-    # Validate 2016 base-year CPI data and ensure it contains all four quarters
-
-    cpi_2016 = cpi[cpi["period"].str.startswith("2016")]
-
+    # 10. Validate complete 2016 CPI base-year data
     expected_2016_periods = {
         "2016Q1",
         "2016Q2",
         "2016Q3",
         "2016Q4"}
 
-    actual_2016_periods = set(cpi_2016["period"])
+    actual_2016_periods = set(
+        cpi.loc[cpi["period"].str.startswith("2016"), "period"])
 
     if actual_2016_periods != expected_2016_periods:
-        raise ValueError("2016 年 CPI 季資料不完整，請確認是否包含 Q1 至 Q4。")
+        raise ValueError("2016 年 CPI 季度資料不完整，請確認是否包含 Q1 至 Q4。")
 
-    transactions = transactions.copy()
+    # 11. Validate duplicate keys
+    if hpi.duplicated(["period", "region"]).any():
+        raise ValueError("Duplicate HPI period-region combinations found.")
 
-    required_transactions = {
-        "period",
-        "municipality",
-        "median_unit_price"}
+    if cpi["period"].duplicated().any():
+        raise ValueError("Duplicate CPI quarters found.")
 
-    if not required_transactions.issubset(transactions.columns):
-        raise ValueError(
-            f"Transaction data missing columns: "
-            f"{required_transactions - set(transactions.columns)}")
-
-    transactions["period"] = transactions["period"].astype("string")
-
-    if transactions["period"].isna().any():
-        raise ValueError("Transaction period contains missing values.")
-
-    if not transactions["period"].str.fullmatch(r"\d{4}Q[1-4]").all():
-        raise ValueError("Transaction period format must be YYYYQn.")
-
-    if transactions[
-        ["period", "municipality", "median_unit_price"]].isna().any().any():
-        raise ValueError("Transaction data contains missing values.")
-
-    if not np.isfinite(transactions["median_unit_price"]).all():
-        raise ValueError("Transaction median unit price contains non-finite values.")
-
-    if (transactions["median_unit_price"] <= 0).any():
-        raise ValueError("Transaction median unit price must be positive.")
-    if hpi["region"].isna().any() or hpi["region"].eq("").any():
-        raise ValueError("HPI region contains missing or empty values.")
-
-    if (transactions["municipality"].isna().any()
-        or transactions["municipality"].eq("").any()):
-        raise ValueError("Transaction municipality contains missing or empty values.")
-    
     if transactions.duplicated(["period", "municipality"]).any():
         raise ValueError("Duplicate transaction period-municipality combinations found.")
 
@@ -242,7 +227,7 @@ def normalize_cpi_base_year(
     cpi: pd.DataFrame, base_year: int = 2016) -> pd.DataFrame:
     """
     Normalize quarterly CPI so that the annual average
-    of the base year 2016 equals to 100.
+    of the base year equals to 100.
     """
 
     cpi = cpi.copy()
@@ -464,15 +449,12 @@ def calculate_hpi_growth(hpi_df: pd.DataFrame) -> pd.DataFrame:
     return result.sort_values(["period", "region"]).reset_index(drop=True)
 
 
-# 僅擷取各縣市最新季度的交易資料計算購屋頭期款
-# 使用最新季度各縣市住宅交易單價中位數估算一戶標準 30 坪住宅的總價
+# 僅擷取"各縣市最新季度住宅交易資料"計算購屋頭期款
+# 使用"各縣市最新季度住宅單價中位數"估算一戶標準 30 坪住宅總價
 def calculate_house_price_base(
     transaction_df: pd.DataFrame,
-    property_area_ping: float = 30) -> pd.DataFrame:
+    property_area_ping: float = DEFAULT_PROPERTY_AREA_PING) -> pd.DataFrame:
     """
-    使用最新季度各縣市的住宅單價中位數，
-    估算一戶 30 坪住宅的總價。
-
     median_unit_price 單位：元／平方公尺
     1 坪 = 3.3058 平方公尺
     """
@@ -568,6 +550,7 @@ def calculate_down_payment_target(
         "region",
         "hpi_growth_10y"]
     
+    # 1. Validate required columns
     for col in required_house_columns:
         if col not in house_price.columns:
             raise ValueError(f"房價資料缺少欄位：{col}")
@@ -576,40 +559,60 @@ def calculate_down_payment_target(
         if col not in growth.columns:
             raise ValueError(f"HPI 成長率資料缺少欄位：{col}")
 
-    if (growth["hpi_growth_10y"].dropna() <= -1).any():
+    # 2. Validate house price data
+    if house_price[required_house_columns].isna().any().any():
+        raise ValueError("房價資料存在缺值。")
+
+    # 3. Remove unavailable 10-year growth rates
+    growth = growth.dropna(subset=["hpi_growth_10y"]).copy()
+
+    if growth.empty:
+        raise ValueError("沒有可用的 HPI 十年成長率資料。")
+
+    # 4. Validate remaining growth data
+    if growth[required_growth_columns].isna().any().any():
+        raise ValueError("HPI 成長率資料存在缺值。")
+    
+    # 5. 
+    if (growth["hpi_growth_10y"] <= -1).any():
         raise ValueError("HPI annualized growth rate must be greater than -100%.")
 
     if not 0 < down_payment_ratio <= 1:
         raise ValueError("down_payment_ratio must be between 0 and 1.")
 
-    if not isinstance(forecast_years, int) or forecast_years <= 0:
+    if (isinstance(forecast_years, bool)
+        or not isinstance(forecast_years, int)
+        or forecast_years <= 0):
         raise ValueError("forecast_years must be a positive integer.")
 
     # 記錄房價基準季度
+    # 將交易資料 municipality 重新命名為 region，再與 HPI 成長率依 region 合併
     house_price = house_price.rename(columns={"period": "house_price_period"})
-
-    # 僅保留有效的十年成長率
-    growth = growth.dropna(subset=["hpi_growth_10y"]).copy()
 
     # 各縣市只保留最新可用的成長率
     growth = growth.sort_values("period")
 
-    # 取得各地區最新一筆有效的十年 HPI 成長率
+    # 取得各地區最新一筆(tail(1))有效的十年 HPI 成長率
     latest_growth = (
         growth.groupby("region", as_index=False)
         .tail(1)
         .rename(columns={"period": "growth_period"}))
 
-    common_regions = (set(house_price["region"]) & set(latest_growth["region"]))
+    # 檢查 regions 是否完整匹配，避免部分 regions 被靜默排除
+    house_regions = set(house_price["region"])
+    growth_regions = set(latest_growth["region"])
 
-    print("Common regions:", sorted(common_regions))
+    missing_growth_regions = house_regions - growth_regions
+
+    if missing_growth_regions:
+        raise ValueError("以下交易地區缺少對應的 HPI 成長率："
+                         f"{sorted(missing_growth_regions)}")
 
     # 以地區合併，不要求兩份資料季度相同
-    result = house_price.merge(
-        latest_growth[[
-                "region",
-                "growth_period",
-                "hpi_growth_10y"]],
+    result = house_price.merge(latest_growth[[
+        "region",
+        "growth_period",
+        "hpi_growth_10y"]],
         on="region",
         how="inner",
         validate="one_to_one")
@@ -617,7 +620,7 @@ def calculate_down_payment_target(
     if result.empty:
         raise ValueError(
             "No matching transaction and HPI growth data found. "
-            "請確認兩份資料的 region 名稱是否一致。")
+            "請確認兩份資料 region 名稱是否一致。")
 
     # 未來十年名目房價
     result["forecast_years"] = forecast_years
@@ -677,8 +680,11 @@ def validate_results(df: pd.DataFrame) -> pd.DataFrame:
     if (df["future_house_price"] <= 0).any():
         raise ValueError("Future house price must be positive.")
 
-    if not df["down_payment_ratio"].between(0, 1).all():
-        raise ValueError("Down payment ratio must be between 0 and 1.")
+    if (df["down_payment_target"] <= 0).any():
+        raise ValueError("Down payment target must be positive.")
+
+    if not df["down_payment_ratio"].between(0, 1, inclusive="right").all():
+        raise ValueError("Down payment ratio must be greater than 0 and at most 1.")
 
     if df.duplicated(["region"]).any():
         raise ValueError("Duplicate municipality results found.")
@@ -727,12 +733,11 @@ def save_results(hpi_growth, down_payment):
     print("HPI Growth and Down Payment Target exported successfully.")
 
 
-# 確認每個 HPI 地區基期四季平均值：
+# 確認每個地區 HPI 都有完整基期資料，且指定基期(2016)年度平均值為 100
 def validate_hpi_base_year(
     hpi: pd.DataFrame,
     base_year: int = 2016,
-    tolerance: float = 0.01,) -> None:
-    """確認原始 HPI 是否已採用指定年度平均 = 100 的基期。"""
+    tolerance: float = 0.01) -> None:
 
     base_periods = {
         f"{base_year}Q1",
@@ -740,15 +745,34 @@ def validate_hpi_base_year(
         f"{base_year}Q3",
         f"{base_year}Q4"}
 
+    # 取得所有 HPI 地區
+    all_regions = set(hpi["region"].dropna().unique())
+
+    # 篩選基期年度資料
     base_data = hpi[hpi["period"].isin(base_periods)].copy()
 
-    if set(base_data["period"]) != base_periods:
-        raise ValueError(f"HPI 缺少 {base_year} 年完整季度資料，無法確認基期。")
-    
-    # 針對每個 region，計算基期年度四季平均值
+    # 檢查是否有地區完全缺少基期資料
+    base_regions = set(base_data["region"].dropna().unique())
+    missing_base_regions = all_regions - base_regions
+
+    if missing_base_regions:
+        raise ValueError(
+            f"HPI 以下地區完全缺少 {base_year} 年資料："
+            f"{sorted(missing_base_regions)}")
+
+    # 檢查每個地區是否都有完整四季資料
+    quarter_counts = (base_data.groupby("region")["period"].nunique())
+
+    incomplete_regions = quarter_counts[quarter_counts != 4]
+
+    if not incomplete_regions.empty:
+        raise ValueError(
+            f"HPI 以下地區缺少 {base_year} 年完整季度資料：\n"
+            f"{incomplete_regions}")
+
+    # 檢查每個地區的基期年度平均值是否為 100
     base_average = (base_data.groupby("region")["housing_price_index"].mean())
 
-    # 確認是否接近 100，tolerance=0.01 允許平均值與 100 相差 0.01 個指數點
     invalid_regions = base_average[
         ~np.isclose(
             base_average,
@@ -758,10 +782,14 @@ def validate_hpi_base_year(
 
     if not invalid_regions.empty:
         raise ValueError(
-            f"HPI 並非 {base_year} 年平均 = 100：\n"
+            f"HPI 以下地區的 {base_year} 年平均值不等於 100：\n"
             f"{invalid_regions}")
 
-    print(f"HPI 已確認：{base_year} 年平均 = 100。")
+    print(
+        f"HPI 已通過基期檢查："
+        f"所有地區均有完整的 {base_year} 年季度資料，"
+        f"且年度平均值為 100。")
+
 
 # 7. Run Real HPI pipeline
 
@@ -792,30 +820,38 @@ def run_real_hpi() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     # Step 6: Calculate current house price
     house_price = calculate_house_price_base(transactions)
 
-    # Step 7: Estimate the future nominal down payment
-    # using the latest transaction price and latest available HPI growth rate.
-    print("\n=== HPI Regions ===")
-    print(sorted(hpi["region"].unique().tolist()))
+    # Step 7: Diagnose geographic coverage
 
-    print("\n=== Transaction Regions ===")
-    print(sorted(transactions["municipality"].unique().tolist()))
+    hpi_regions = set(hpi["region"].dropna().unique())
+    transaction_regions = set(transactions["municipality"].dropna().unique())
 
-    print("\n=== House Price Regions ===")
-    print(house_price["region"].unique())  # 確認縣市名稱是否一致或有混用情形
+    common_regions = hpi_regions & transaction_regions
+    transaction_only_regions = transaction_regions - hpi_regions
+    hpi_only_regions = hpi_regions - transaction_regions
 
-    print("\n=== HPI Growth Regions ===")
-    print(hpi_growth["region"].unique())
+    print("\n=== Geographic Coverage ===")
+    print("HPI regions:", sorted(hpi_regions))
+    print("Transaction regions:", sorted(transaction_regions))
+    print("Common regions:", sorted(common_regions))
+    print("Transaction-only regions:", sorted(transaction_only_regions))
+    print("HPI-only regions:", sorted(hpi_only_regions))
 
     print("\n=== HPI Growth Preview ===")
-    print(hpi_growth.head(10))  # 確認 HPI 成長率是否真的有六都資料
+    print(hpi_growth.head(10))
 
     print("\n=== HPI Growth Latest Period ===")
     print(hpi_growth["period"].max())
 
-    down_payment = calculate_down_payment_target(house_price, hpi_growth)
+    # Step 8: Estimate the future nominal down payment
+    down_payment = calculate_down_payment_target(
+        house_price,
+        hpi_growth,
+        down_payment_ratio=0.20,
+        forecast_years=10)
 
-    # Step 8: Validate and export
+    # Step 9: Validate and export
     down_payment = validate_results(down_payment)
+
     save_real_hpi(real_hpi)
     save_results(hpi_growth, down_payment)
 
