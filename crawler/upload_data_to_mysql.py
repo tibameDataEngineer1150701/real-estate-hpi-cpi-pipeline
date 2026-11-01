@@ -24,7 +24,8 @@ DATASETS = {
     "housing_txn_qtr": PROCESSED_DIR / "residential_transactions_quarterly.csv",
     "housing_price_index": PROCESSED_DIR / "housing_price_index.csv",
     "cpi": PROCESSED_DIR / "cpi.csv",
-    "hpi": PROCESSED_DIR / "real_hpi.csv"
+    "hpi": PROCESSED_DIR / "real_hpi.csv",
+    "down_pmt_target": PROCESSED_DIR / "down_payment_target.csv"
 }
 
 
