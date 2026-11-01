@@ -20,7 +20,7 @@ b csv: 自動處理 trailing comma
 不修改原始 CSV
 
 2. Schema normalization
-a csv: 33 欄, sale 不動產買賣
+a csv: 33 欄, sale 成屋買賣
 b csv: 31 欄, presale 預售屋買賣
 -> 建立共同欄位: transaction_type
 
@@ -67,7 +67,7 @@ OUTPUT_CSV = (PROCESSED_DIR / "residential_transactions_quarterly.csv")
 
 # Analysis data are restricted to transactions with transaction dates on or before the analysis cutoff date.
 # 明確定義資料截止日期，period: quarterly aggregation key
-# 只分析 2016-01-01 ~ 2026-09-30, 具"有效正數單價"的不動產、預售屋交易
+# 只分析 2016-01-01 ~ 2026-09-30, 具"有效正數單價"的不動產(成屋)、預售屋交易
 ANALYSIS_START_DATE = pd.Timestamp("2016-01-01")
 ANALYSIS_CUTOFF_DATE = pd.Timestamp("2026-09-30")
 
@@ -296,7 +296,7 @@ def clean_a_dataframe(df):
     df = df[COMMON_COLUMNS].copy()
 
     # Identify transaction type: sale
-    df["transaction_type"] = "成屋"
+    df["transaction_type"] = "成屋買賣"
 
     return df
 
@@ -1052,10 +1052,10 @@ def validate_data_quality(df, name):
     print("\n--- Unit Price Quality ---")
     print(unit_price_quality)
 
-# 函式: 定義"不動產買賣"、"預售屋買賣"
+# 函式: 定義"不動產(成屋)買賣"、"預售屋買賣"
 def filter_residential_transactions(df):
 
-    # 不將單獨的土地、車位、建物納入不動產平均單價計算
+    # 不將單獨的土地、車位、建物納入平均單價計算
     residential_types = ["房地(土地+建物)", "房地(土地+建物)+車位"]
 
     residential_df = df[df["交易標的"].isin(residential_types)].copy()
@@ -1063,7 +1063,7 @@ def filter_residential_transactions(df):
     return residential_df
 
 
-# 函式: 六都房價分析可用的不動產與預售屋買賣資料品質確認
+# 函式: 六都房價分析可用的不動產(成屋)與預售屋買賣資料品質確認
 def filter_analysis_eligible_transactions(df,
                                           start_date=ANALYSIS_START_DATE,
                                           cutoff_date=ANALYSIS_CUTOFF_DATE):
@@ -1127,7 +1127,7 @@ def filter_six_municipalities(df):
 # 六都住宅交易季度整合與 Parquet 輸出
 # ============================================================
 
-TRANSACTION_TYPES = ["不動產買賣", "預售屋買賣"]
+TRANSACTION_TYPES = ["成屋買賣", "預售屋買賣"]
 
 def aggregate_quarterly_transactions(df):
     """
@@ -1304,7 +1304,7 @@ if __name__ == "__main__":
     # 2. Validate schema
     # -----------------------------------------
 
-    validate_dataframe(df_a,"A",expected_transaction_type="不動產買賣")
+    validate_dataframe(df_a,"A",expected_transaction_type="成屋買賣")
     validate_dataframe(df_b,"B",expected_transaction_type="預售屋買賣")
 
     # -----------------------------------------

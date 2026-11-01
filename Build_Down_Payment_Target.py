@@ -11,7 +11,7 @@ from loguru import logger
 # ============================================================
 
 PROJECT_DIR = Path(__file__).resolve().parent
-PROCESSED_DIR = PROJECT_DIR / "crawler" / "processed"
+PROCESSED_DIR = PROJECT_DIR / "processed"
 OUTPUT_DIR = PROJECT_DIR / "processed"
 
 HPI_FILE = PROCESSED_DIR / "housing_price_index.parquet"
@@ -65,7 +65,6 @@ def load_data():
 # 3. Validate Source Data
 # ============================================================
 
-
 def validate_source_data(hpi, transactions):
     """Validate required columns, data types, and regional coverage."""
 
@@ -78,11 +77,13 @@ def validate_source_data(hpi, transactions):
         "period",
         "municipality",
         "median_unit_price",
-        "transaction_type"}
+        "transaction_type",
+        "data_status",
+        "transaction_count"}
 
     # Check required columns
     missing_hpi = required_hpi - set(hpi.columns)
-    missing_transactions = (required_transactions - set(transactions.columns))
+    missing_transactions = required_transactions - set(transactions.columns)
 
     if missing_hpi:
         raise ValueError(f"Missing HPI columns: {missing_hpi}")
@@ -94,31 +95,88 @@ def validate_source_data(hpi, transactions):
     if hpi.empty or transactions.empty:
         raise ValueError("Source data cannot be empty")
 
-    # Check transaction types
-    valid_types = {"成屋", "預售屋"}
+    # Validate transaction data status
+    if transactions["data_status"].isna().any():
+        raise ValueError("Transaction data_status contains missing values")
 
-    if transactions["transaction_type"].isna().any():
-        raise ValueError("Transaction type contains missing values")
+    valid_status = {
+        "available",
+        "no_eligible_transactions"}
 
-    actual_types = set(transactions["transaction_type"].unique())
+    if not transactions["data_status"].isin(valid_status).all():
+        raise ValueError("Unexpected transaction data_status")
 
-    if not actual_types.issubset(valid_types):
-        raise ValueError(f"Unexpected transaction types: {actual_types - valid_types}")
+    transactions = transactions[
+        transactions["data_status"] == "available"].copy()
 
-    if actual_types != valid_types:
-        raise ValueError(f"Incomplete transaction types: {actual_types}")
+    if transactions.empty:
+        raise ValueError("No eligible transaction records available")
+
+    # Validate transaction count
+    transactions["transaction_count"] = pd.to_numeric(
+        transactions["transaction_count"],
+        errors="coerce")
+
+    if (transactions["transaction_count"].isna().any()
+        or not np.isfinite(
+            transactions["transaction_count"].to_numpy()).all()
+        or (transactions["transaction_count"] <= 0).any()
+        or (transactions["transaction_count"] % 1 != 0).any()):
+        raise ValueError("Available transactions must have positive integer transaction_count")
 
     # Check missing period and region values
     if hpi[["period", "region"]].isna().any().any():
         raise ValueError("HPI period or region contains missing values")
 
+    if hpi["region"].astype("string").str.strip().eq("").any():
+        raise ValueError("HPI region contains empty strings")
+
+    if hpi["region"].ne(
+        hpi["region"].astype("string").str.strip()).any():
+        raise ValueError("HPI region contains leading or trailing spaces")
+
     if transactions[["period", "municipality"]].isna().any().any():
         raise ValueError("Transaction period or municipality contains missing values")
 
-    # Convert numeric columns
-    hpi = hpi.copy()
-    transactions = transactions.copy()
+    if transactions["municipality"].astype("string").str.strip().eq("").any():
+        raise ValueError("Transaction municipality contains empty strings")
 
+    if transactions["municipality"].ne(
+        transactions["municipality"].astype("string").str.strip()).any():
+        raise ValueError("Transaction municipality contains leading or trailing spaces")
+
+    # Validate quarter formats
+    try:
+        hpi = hpi.copy()
+        transactions = transactions.copy()
+
+        hpi["period"] = pd.PeriodIndex(hpi["period"], freq="Q")
+        transactions["period"] = pd.PeriodIndex(
+            transactions["period"],
+            freq="Q")
+
+    except (ValueError, TypeError) as exc:
+        raise ValueError("Period 欄位必須是有效的季度格式，例如 2024Q1") from exc
+
+    # Validate transaction types
+    valid_types = {"成屋買賣", "預售屋買賣"}
+
+    if transactions["transaction_type"].isna().any():
+        raise ValueError("Transaction type contains missing values")
+
+    if transactions["transaction_type"].astype("string").str.strip().eq("").any():
+        raise ValueError("Transaction type contains empty strings")
+
+    if transactions["transaction_type"].ne(
+        transactions["transaction_type"].astype("string").str.strip()).any():
+        raise ValueError("Transaction type contains leading or trailing spaces")
+
+    actual_types = set(transactions["transaction_type"].unique())
+
+    if actual_types != valid_types:
+        raise ValueError(f"Transaction types incomplete or unexpected: {actual_types}")
+
+    # Validate numeric columns
     hpi["housing_price_index"] = pd.to_numeric(
         hpi["housing_price_index"],
         errors="coerce")
@@ -127,10 +185,8 @@ def validate_source_data(hpi, transactions):
         transactions["median_unit_price"],
         errors="coerce")
 
-    # Validate numeric values
     if (hpi["housing_price_index"].isna().any()
-        or not np.isfinite(
-            hpi["housing_price_index"].to_numpy()).all()
+        or not np.isfinite(hpi["housing_price_index"].to_numpy()).all()
         or (hpi["housing_price_index"] <= 0).any()):
         raise ValueError("HPI contains missing or invalid values")
 
@@ -139,20 +195,20 @@ def validate_source_data(hpi, transactions):
             transactions["median_unit_price"].to_numpy()).all()
         or (transactions["median_unit_price"] <= 0).any()):
         raise ValueError("Transaction prices contain missing or invalid values")
-    
+
     # Check duplicate records
     if hpi.duplicated(subset=["period", "region"]).any():
         raise ValueError("Duplicate HPI records found for the same period and region")
 
-    if transactions.duplicated(subset=["period", "municipality", "transaction_type"]).any():
+    if transactions.duplicated(
+        subset=["period", "municipality", "transaction_type"]).any():
         raise ValueError(
             "Duplicate transaction records found for the same period, "
             "municipality, and transaction type")
 
     # Check regional coverage
     hpi_regions = set(hpi["region"].unique())
-    transaction_regions = set(
-        transactions["municipality"].unique())
+    transaction_regions = set(transactions["municipality"].unique())
 
     missing_hpi_regions = set(MUNICIPALITIES) - hpi_regions
     missing_transaction_regions = (set(MUNICIPALITIES) - transaction_regions)
@@ -163,8 +219,19 @@ def validate_source_data(hpi, transactions):
     if missing_transaction_regions:
         raise ValueError(f"Missing transaction regions: {missing_transaction_regions}")
 
-    return hpi, transactions
+    # Check transaction types for each municipality
+    for municipality in MUNICIPALITIES:
+        municipality_types = set(
+            transactions.loc[
+                transactions["municipality"] == municipality,
+                "transaction_type"].unique())
 
+        if municipality_types != valid_types:
+            raise ValueError(
+                f"{municipality} transaction types incomplete: "
+                f"{municipality_types}")
+
+    return hpi, transactions
 
 
 # ============================================================
@@ -181,11 +248,13 @@ def calculate_hpi_cagr(
     5 年 = 20 季
     10 年 = 40 季
     """
-
-    df = hpi.copy()
+    # CAGR 只計算六都，符合預設條件
+    df = hpi[hpi["region"].isin(MUNICIPALITIES)].copy()
 
     # Python 中 bool 是 int 的子類別
-    if isinstance(years, bool) or not isinstance(years, int) or years <= 0:
+    if (isinstance(years, (bool, np.bool_))
+        or not isinstance(years, (int, np.integer))
+        or years <= 0):
         raise ValueError("years must be a positive integer")
 
     df["quarter"] = pd.PeriodIndex(
@@ -202,6 +271,34 @@ def calculate_hpi_cagr(
 
     previous = previous.rename(columns={"housing_price_index": "previous_hpi"})
 
+    # Check duplicate region-quarter keys
+    if df.duplicated(subset=["region", "quarter"]).any():
+        raise ValueError("HPI 存在重複的地區與季度組合")
+
+    for region, group in df.groupby("region"):
+        available_quarters = set(group["quarter"])
+
+        latest_quarter = group["quarter"].max()
+        required_previous_quarter = latest_quarter - quarter_interval
+
+        if required_previous_quarter not in available_quarters:
+            raise ValueError(
+                f"{region} 缺少計算近 {years} 年 CAGR "
+                f"所需的基準季度：{required_previous_quarter}")
+
+        # 檢查基準季度至最新季度之間是否缺少任何季度
+        expected_quarters = pd.period_range(
+            start=required_previous_quarter,
+            end=latest_quarter,
+            freq="Q")
+
+        missing_quarters = set(expected_quarters) - available_quarters
+
+        if missing_quarters:
+            raise ValueError(
+                f"{region} 近 {years} 年 HPI 資料缺少季度："
+                f"{sorted(missing_quarters)}")
+        
     merged = df.merge(
         previous,
         on=["region", "quarter"],
@@ -267,9 +364,8 @@ def calculate_house_price_base(transactions: pd.DataFrame) -> pd.DataFrame:
     house_price = (
         df.groupby(["municipality", "transaction_type"])
         .agg(
-            house_price_period=("quarter", "first"),
-            median_unit_price=("median_unit_price", "median"),
-        ).reset_index())
+            house_price_period=("latest_quarter", "first"),
+            median_unit_price=("median_unit_price", "median")).reset_index())
 
     house_price["house_price"] = (
         house_price["median_unit_price"]
@@ -375,6 +471,8 @@ def validate_results(result: pd.DataFrame):
         raise ValueError(f"預期 {expected_rows} 列，實際 {len(result)} 列")
 
     required_columns = {
+        "house_price_period",
+        "growth_period",
         "region",
         "transaction_type",
         "scenario",
@@ -396,9 +494,22 @@ def validate_results(result: pd.DataFrame):
     if result.isna().any().any():
         raise ValueError("結果存在空值")
 
-    if not np.isfinite(
-        result.select_dtypes(include=[np.number]).to_numpy()).all():
-        raise ValueError("結果存在無限值或非有限數值")
+    # 驗證數值欄位沒有 NaN 或正負無限大
+    numeric_columns = result.select_dtypes(include=[np.number]).columns
+
+    for column in numeric_columns:
+        values = pd.to_numeric(result[column], 
+                               errors="coerce").to_numpy(dtype="float64", na_value=np.nan)
+
+        if not np.isfinite(values).all():
+            raise ValueError(f"結果欄位 {column} 存在 NaN 或無限大數值")
+
+    # Check forecast parameters
+    if not (result["forecast_years"] == FORECAST_YEARS).all():
+        raise ValueError("預測年數與設定值不一致")
+
+    if not np.allclose(result["down_payment_ratio"], DOWN_PAYMENT_RATIO):
+        raise ValueError("頭期款比例與設定值不一致")
 
     expected_scenarios = {"保守", "中性", "樂觀"}
 
@@ -411,7 +522,7 @@ def validate_results(result: pd.DataFrame):
     if result.duplicated(subset=["region", "transaction_type", "scenario"]).any():
         raise ValueError("存在重複的地區、交易類型與情境組合")
 
-    expected_types = {"成屋", "預售屋"}
+    expected_types = {"成屋買賣", "預售屋買賣"}
 
     for region in MUNICIPALITIES:
         region_data = result[result["region"] == region]
