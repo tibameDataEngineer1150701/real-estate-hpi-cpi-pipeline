@@ -135,6 +135,9 @@ def validate_source_data(
     hpi["period"] = hpi["period"].astype("string")
     cpi["period"] = cpi["period"].astype("string")
     transactions["period"] = transactions["period"].astype("string")
+    transactions["transaction_type"] = (
+        transactions["transaction_type"].astype("string").str.strip()
+    )
 
     hpi["region"] = hpi["region"].astype("string").str.strip()
 
@@ -170,6 +173,9 @@ def validate_source_data(
 
     if transactions["municipality"].eq("").any():
         raise ValueError("Transaction municipality contains empty values.")
+
+    if transactions["transaction_type"].isna().any() or transactions["transaction_type"].eq("").any():
+        raise ValueError("Transaction type contains missing or empty values.")
 
     # 7. Validate quarterly period format (YYYYQn) 三份資料都使用相同季度格式
     period_pattern = r"\d{4}Q[1-4]"
@@ -223,8 +229,22 @@ def validate_source_data(
     if cpi["period"].duplicated().any():
         raise ValueError("Duplicate CPI quarters found.")
 
-    if transactions.duplicated(["period", "municipality"]).any():
-        raise ValueError("Duplicate transaction period-municipality combinations found.")
+    transaction_key = ["period", "municipality", "transaction_type"]
+    duplicate_transactions = transactions.duplicated(
+        subset=transaction_key,
+        keep=False,
+    )
+
+    if duplicate_transactions.any():
+        duplicate_rows = (
+            transactions.loc[duplicate_transactions, transaction_key]
+            .sort_values(transaction_key)
+        )
+        raise ValueError(
+            "Duplicate transaction period-municipality-transaction_type "
+            "combinations found:\\n"
+            f"{duplicate_rows.to_string(index=False)}"
+        )
 
     return hpi, cpi, transactions
 
@@ -269,16 +289,104 @@ def normalize_cpi_base_year(
 
     return cpi
 
+def normalize_hpi_base_year(
+    hpi: pd.DataFrame,
+    base_year: int = 2016) -> pd.DataFrame:
+    """
+    各地區 HPI 重新基期化，使基期年度四季平均值等於 100。
+    """
 
-def merge_hpi_cpi(hpi: pd.DataFrame, cpi: pd.DataFrame) -> pd.DataFrame:
-    """Merge HPI and normalized CPI over common quarters."""
+    hpi = hpi.copy()
 
+    base_periods = {
+        f"{base_year}Q{quarter}"
+        for quarter in range(1, 5)}
+
+    base_data = hpi[hpi["period"].isin(base_periods)]
+
+    # 檢查每個地區是否都有基期年度四季資料
+    expected_regions = set(hpi["region"].dropna().unique())
+
+    coverage = (
+        base_data.groupby("region")["period"]
+        .agg(set))
+
+    incomplete_regions = [
+        region
+        for region in expected_regions
+        if (
+            region not in coverage.index
+            or coverage.loc[region] != base_periods)]
+
+    if incomplete_regions:
+        raise ValueError(
+            f"HPI 以下地區缺少 {base_year} 年完整季度資料："
+            f"{sorted(incomplete_regions)}")
+
+    # 計算各地區基期年度平均 HPI
+    base_average = (
+        base_data.groupby("region", as_index=False)["housing_price_index"]
+        .mean()
+        .rename(columns={"housing_price_index": "hpi_base_year_average"}))
+
+    if (
+        (base_average["hpi_base_year_average"] <= 0).any()
+        or not np.isfinite(
+            base_average["hpi_base_year_average"].to_numpy(
+                dtype=float)).all()):
+        raise ValueError("HPI 基期年度平均值無效。")
+
+    # 合併基期平均值
+    hpi = hpi.merge(
+        base_average,
+        on="region",
+        how="left",
+        validate="many_to_one")
+
+    # 標準化 HPI：基期年度平均 = 100
+    hpi["hpi_2016_base100"] = (
+        hpi["housing_price_index"]
+        / hpi["hpi_base_year_average"]
+        * 100)
+
+    hpi = hpi.drop(columns=["hpi_base_year_average"])
+
+    # 確認標準化結果
+    normalized_means = (
+        hpi[hpi["period"].isin(base_periods)]
+        .groupby("region")["hpi_2016_base100"]
+        .mean())
+
+    print(
+        f"HPI {base_year} 年平均標準化後："
+        f"各地區平均值範圍 "
+        f"{normalized_means.min():.6f}–"
+        f"{normalized_means.max():.6f}")
+
+    return hpi
+
+
+# 合併已完成基期標準化的 HPI 與 CPI，會檢查 HPI 是否已建立 hpi_2016_base100
+def merge_hpi_cpi(
+    hpi: pd.DataFrame,
+    cpi: pd.DataFrame) -> pd.DataFrame:
+
+    hpi = hpi.copy()
+    cpi = cpi.copy()
+
+    # 確認 HPI 已完成基期標準化
+    if "hpi_2016_base100" not in hpi.columns:
+        raise ValueError("HPI 尚未完成基期標準化，請先執行 normalize_hpi_base_year(hpi)。")
+
+    # 確認 CPI 已完成基期標準化
+    if "cpi_2016_base100" not in cpi.columns:
+        raise ValueError("CPI 尚未完成基期標準化，請先執行 normalize_cpi_base_year(cpi)。")
+
+    # 確認 CPI 每季只有一筆資料
     if cpi["period"].duplicated().any():
         raise ValueError("CPI 存在重複季度。")
 
-    if "cpi_2016_base100" not in cpi.columns:
-        raise ValueError("CPI 尚未完成基期標準化。")
-
+    # 找出兩份資料共同的季度
     common_periods = (set(hpi["period"]) & set(cpi["period"]))
 
     if not common_periods:
@@ -286,17 +394,19 @@ def merge_hpi_cpi(hpi: pd.DataFrame, cpi: pd.DataFrame) -> pd.DataFrame:
 
     hpi_filtered = hpi[hpi["period"].isin(common_periods)].copy()
 
-    real_hpi = hpi_filtered.merge(
+    # 合併 HPI 與 CPI
+    merged = hpi_filtered.merge(
         cpi[["period", "cpi_index", "cpi_2016_base100"]],
         on="period",
         how="left",
         validate="many_to_one",
         indicator=True)
 
-    if (real_hpi["_merge"] != "both").any():
+    # 確認每筆 HPI 都成功配對 CPI
+    if (merged["_merge"] != "both").any():
         raise ValueError("HPI 與 CPI 合併後仍存在未匹配資料。")
 
-    real_hpi = real_hpi.drop(columns=["_merge"])
+    merged = merged.drop(columns=["_merge"])
 
     print(
         "HPI 原始期間：",
@@ -306,25 +416,46 @@ def merge_hpi_cpi(hpi: pd.DataFrame, cpi: pd.DataFrame) -> pd.DataFrame:
 
     print(
         "Real HPI 共同期間：",
-        min(real_hpi["period"]),
+        min(merged["period"]),
         "至",
-        max(real_hpi["period"]))
+        max(merged["period"]))
 
-    print("合併後資料筆數：", len(real_hpi))
+    print(
+        "合併後資料筆數：",
+        len(merged)
+    )
 
-    return real_hpi
+    return merged
 
 
-# 4. Calculate Real HPI = HPI / CPI * 100
+# 4. Calculate Real HPI = HPI_2016_base100 / CPI_2016_base100 * 100
 
 def calculate_real_hpi(data: pd.DataFrame) -> pd.DataFrame:
 
     real_hpi = data.copy()
 
+    required_columns = [
+        "hpi_2016_base100",
+        "cpi_2016_base100"]
+
+    missing_columns = (set(required_columns) - set(real_hpi.columns))
+
+    if missing_columns:
+        raise ValueError(
+            f"計算 Real HPI 時缺少必要欄位："
+            f"{missing_columns}。"
+            "請先完成 HPI 與 CPI 基期標準化。")
+
+    if real_hpi[required_columns].isna().any().any():
+        raise ValueError("HPI 或 CPI 標準化欄位包含缺失值。")
+
     real_hpi["real_hpi"] = (
         real_hpi["hpi_2016_base100"]
         / real_hpi["cpi_2016_base100"]
         * 100)
+
+    if not np.isfinite(real_hpi["real_hpi"].to_numpy(dtype=float)).all():
+        raise ValueError("Real HPI 計算結果包含無效數值。")
 
     return real_hpi
 
@@ -473,6 +604,7 @@ def calculate_house_price_base(
     required_columns = [
         "period",
         "municipality",
+        "transaction_type",
         "median_unit_price"]
 
     missing_columns = [
@@ -500,9 +632,12 @@ def calculate_house_price_base(
     if (df["median_unit_price"] <= 0).any():
         raise ValueError("median_unit_price 必須大於 0")
 
-    # 確認每個季度、縣市只有一筆資料
-    if df.duplicated(subset=["period", "municipality"]).any():
-        raise ValueError("交易資料存在重複的 period、municipality")
+    # 同一季度、縣市可以有成屋與預售屋；以交易類型區分唯一鍵
+    transaction_key = ["period", "municipality", "transaction_type"]
+    if df.duplicated(subset=transaction_key).any():
+        raise ValueError(
+            "交易資料存在重複的 period、municipality、transaction_type"
+        )
 
     # 找出最新季度
     latest_period = df["period"].max()
@@ -524,6 +659,7 @@ def calculate_house_price_base(
     result = latest_df[[
             "period",
             "region",
+            "transaction_type",
             "median_unit_price",
             "property_area_ping",
             "house_price"]].copy()
@@ -552,6 +688,7 @@ def calculate_down_payment_target(
     required_house_columns = [
         "period",
         "region",
+        "transaction_type",
         "house_price"]
 
     required_growth_columns = [
@@ -630,7 +767,7 @@ def calculate_down_payment_target(
         "hpi_growth_10y"]],
         on="region",
         how="inner",
-        validate="one_to_one")
+        validate="many_to_one")
 
     if result.empty:
         raise ValueError(
@@ -664,6 +801,7 @@ def validate_results(df: pd.DataFrame) -> pd.DataFrame:
         "house_price_period",
         "growth_period",
         "region",
+        "transaction_type",
         "house_price",
         "hpi_growth_10y",
         "future_house_price",
@@ -701,8 +839,8 @@ def validate_results(df: pd.DataFrame) -> pd.DataFrame:
     if not df["down_payment_ratio"].between(0, 1, inclusive="right").all():
         raise ValueError("Down payment ratio must be greater than 0 and at most 1.")
 
-    if df.duplicated(["region"]).any():
-        raise ValueError("Duplicate municipality results found.")
+    if df.duplicated(["region", "transaction_type"]).any():
+        raise ValueError("Duplicate region-transaction_type results found.")
 
     if (df["hpi_growth_10y"] <= -1).any():
         raise ValueError("HPI annualized growth rate must be greater than -100%.")
@@ -792,69 +930,59 @@ def validate_hpi_base_year(
 
 # 7. Run Real HPI pipeline
 
-def run_real_hpi() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Execute the complete Real HPI pipeline."""
+def run_real_hpi():
 
-    # Step 1: Load data
+    # 1. 載入資料
     hpi, cpi, transactions = load_data()
 
-    # Step 2: Validate source data
-    hpi, cpi, transactions = validate_source_data(hpi, cpi, transactions)
-    validate_hpi_base_year(hpi, base_year=2016)
+    # 2. 驗證原始資料
+    hpi, cpi, transactions = validate_source_data(
+        hpi,
+        cpi,
+        transactions)
 
-    # Step 3: Normalize CPI to 2016 annual average = 100
-    cpi = normalize_cpi_base_year(cpi, base_year=2016)
+    # 3. 將 CPI 基期年度平均標準化為 100
+    cpi = normalize_cpi_base_year(
+        cpi,
+        base_year=2016)
 
-    # Step 4: Merge HPI and CPI over common quarters,
-    # then calculate and validate Real HPI.
-    merged = merge_hpi_cpi(hpi, cpi)
+    # 4. 將各地區 HPI 基期年度平均標準化為 100
+    hpi = normalize_hpi_base_year(
+        hpi,
+        base_year=2016)
 
+    # 5. 合併已標準化的 HPI 與 CPI
+    merged = merge_hpi_cpi(
+        hpi,
+        cpi)
+
+    # 6. 計算 Real HPI
     real_hpi = calculate_real_hpi(merged)
+
+    # 7. 驗證 Real HPI
     real_hpi = validate_real_hpi(real_hpi)
 
-    # Step 5: Calculate 10-year annualized HPI growth
-    # using the same region and the quarter 40 periods earlier.
+    # 8. 儲存 Real HPI
+    save_real_hpi(real_hpi)
+
+    # 9. 計算 HPI 成長率
     hpi_growth = calculate_hpi_growth(hpi)
 
-    # Step 6: Calculate current house price
-    house_price = calculate_house_price_base(transactions)
+    # 10. 計算購屋頭期款目標
+    house_price_base = calculate_house_price_base(transactions)
 
-    # Step 7: Diagnose geographic coverage
+    down_payment = calculate_down_payment_target(house_price_base, hpi_growth)
 
-    hpi_regions = set(hpi["region"].dropna().unique())
-    transaction_regions = set(transactions["municipality"].dropna().unique())
-
-    common_regions = hpi_regions & transaction_regions
-    transaction_only_regions = transaction_regions - hpi_regions
-    hpi_only_regions = hpi_regions - transaction_regions
-
-    print("\n=== Geographic Coverage ===")
-    print("HPI regions:", sorted(hpi_regions))
-    print("Transaction regions:", sorted(transaction_regions))
-    print("Common regions:", sorted(common_regions))
-    print("Transaction-only regions:", sorted(transaction_only_regions))
-    print("HPI-only regions:", sorted(hpi_only_regions))
-
-    print("\n=== HPI Growth Preview ===")
-    print(hpi_growth.head(10))
-
-    print("\n=== HPI Growth Latest Period ===")
-    print(hpi_growth["period"].max())
-
-    # Step 8: Estimate the future nominal down payment
-    down_payment = calculate_down_payment_target(
-        house_price,
-        hpi_growth,
-        down_payment_ratio=0.20,
-        forecast_years=10)
-
-    # Step 9: Validate and export
+    # 11. 驗證與儲存結果
     down_payment = validate_results(down_payment)
 
-    save_real_hpi(real_hpi)
     save_results(hpi_growth, down_payment)
 
     return real_hpi, hpi_growth, down_payment
+
+
+if __name__ == "__main__":
+    real_hpi, hpi_growth, down_payment = run_real_hpi()
 
 
 # 8. Main
